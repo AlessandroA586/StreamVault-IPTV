@@ -984,6 +984,7 @@ private fun localizedProviderName(typeId: String): String = when (typeId) {
     ODDSPAPI_TYPE_ID -> stringResource(R.string.settings_sports_provider_oddspapi_name)
     OPENLIGADB_TYPE_ID -> stringResource(R.string.settings_sports_provider_openligadb_name)
     CUSTOM_SPORTS_PROVIDER_TYPE_ID -> stringResource(R.string.settings_sports_provider_custom_json)
+    ESPN_TYPE_ID -> "ESPN (Nuvio Feed)"
     else -> typeId
 }
 
@@ -994,6 +995,7 @@ private fun android.content.Context.localizedProviderName(typeId: String): Strin
     ODDSPAPI_TYPE_ID -> getString(R.string.settings_sports_provider_oddspapi_name)
     OPENLIGADB_TYPE_ID -> getString(R.string.settings_sports_provider_openligadb_name)
     CUSTOM_SPORTS_PROVIDER_TYPE_ID -> getString(R.string.settings_sports_provider_custom_json)
+    ESPN_TYPE_ID -> "ESPN (Nuvio Feed)"
     else -> typeId
 }
 
@@ -1002,6 +1004,7 @@ private const val HIGHLIGHTLY_TYPE_ID = "highlightly"
 private const val FOOTBALL_DATA_TYPE_ID = "football-data"
 private const val ODDSPAPI_TYPE_ID = "oddspapi"
 private const val OPENLIGADB_TYPE_ID = "openligadb"
+private const val ESPN_TYPE_ID = "espn"
 
 @Composable
 private fun capabilitySummary(capabilities: Set<SportsCapability>): String {

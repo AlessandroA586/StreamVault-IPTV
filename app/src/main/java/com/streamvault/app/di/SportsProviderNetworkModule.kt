@@ -22,7 +22,7 @@ object SportsProviderNetworkModule {
             factories,
             SportsProviderReleasePolicy(
                 development = BuildConfig.BUILD_TYPE == "debug",
-                attributionSupportedTypes = setOf("thesportsdb", "football-data", "openligadb"),
+                attributionSupportedTypes = setOf("thesportsdb", "football-data", "openligadb", "espn"),
             ),
         )
 

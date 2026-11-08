@@ -9,6 +9,7 @@ import com.streamvault.data.sports.highlightly.HighlightlyProviderFactory
 import com.streamvault.data.sports.footballdata.FootballDataProviderFactory
 import com.streamvault.data.sports.oddspapi.OddsPapiProviderFactory
 import com.streamvault.data.sports.openligadb.OpenLigaDbProviderFactory
+import com.streamvault.data.sports.espn.EspnSportsProviderFactory
 import com.streamvault.domain.sports.provider.SportsProviderFactory
 import com.streamvault.domain.sports.provider.SportsProviderStore
 import com.streamvault.domain.sports.provider.SportsProviderEventLinkCache
@@ -51,6 +52,10 @@ abstract class SportsProviderModule {
     @Binds
     @IntoSet
     abstract fun bindOpenLigaDbProviderFactory(impl: OpenLigaDbProviderFactory): SportsProviderFactory
+
+    @Binds
+    @IntoSet
+    abstract fun bindEspnFactory(impl: EspnSportsProviderFactory): SportsProviderFactory
 
     @Binds
     @IntoSet
