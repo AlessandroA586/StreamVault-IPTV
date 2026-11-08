@@ -58,5 +58,16 @@ class EspnSportsProviderTest {
         val provider = factory.create(config)
         assertThat(provider.instanceId).isEqualTo("espn-default")
         assertThat(provider.descriptor.typeId).isEqualTo("espn")
+
+        val scopes = EspnSportsProviderFactory.ALL_SCOPES
+        assertThat(scopes.any { it.sportPath == "cricket" }).isTrue()
+        assertThat(scopes.any { it.sportPath == "rugby" }).isTrue()
+        assertThat(scopes.any { it.sportPath == "wrestling" && it.leagueCode == "wwe" }).isTrue()
+        assertThat(scopes.any { it.sportPath == "wrestling" && it.leagueCode == "aew" }).isTrue()
+        assertThat(scopes.any { it.sportPath == "wrestling" && it.leagueCode == "tna" }).isTrue()
+        assertThat(scopes.any { it.sportPath == "racing" && it.leagueCode == "f1" }).isTrue()
+        assertThat(scopes.any { it.sportPath == "tennis" && it.leagueCode == "atp" }).isTrue()
+        assertThat(scopes.any { it.sportPath == "mma" && it.leagueCode == "ufc" }).isTrue()
+        assertThat(scopes.any { it.sportPath == "golf" && it.leagueCode == "pga" }).isTrue()
     }
 }

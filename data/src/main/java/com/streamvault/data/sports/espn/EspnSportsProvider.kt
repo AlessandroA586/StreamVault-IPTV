@@ -27,10 +27,13 @@ internal data class EspnLeagueScope(
     val leagueCode: String,
     val displayName: String,
     val genericSport: String,
+    val customEndpoint: String? = null,
 ) {
-    val fullPath: String get() = "$sportPath/$leagueCode"
+    val fullPath: String get() = if (sportPath.isEmpty()) leagueCode else "$sportPath/$leagueCode"
     val safeFileId: String get() = "${sportPath}_${leagueCode}".replace(Regex("[^a-zA-Z0-9]+"), "_")
 }
+
+private class IntRef(var value: Int = 0)
 
 internal class EspnSportsProvider(
     private val config: SportsProviderConfig,
@@ -43,7 +46,7 @@ internal class EspnSportsProvider(
 
     override val instanceId: String = config.instanceId
 
-    // Team cache for artwork and metadata
+    // Team and brand cache for artwork and metadata
     private val knownTeams = ConcurrentHashMap<String, ProviderCompetitor>()
 
     override suspend fun testConnection(credentials: SportsProviderCredentials?): SportsProviderResult<Unit> {
@@ -63,7 +66,7 @@ internal class EspnSportsProvider(
         if (scopes.isEmpty()) return SportsProviderResult.Success(ProviderBatch(emptyList()))
 
         val allEvents = mutableListOf<ProviderEvent>()
-        var rejectedCount = 0
+        val rejectedRef = IntRef(0)
 
         val fromDate = request.from.atZone(ZoneOffset.UTC).toLocalDate()
         val untilDate = request.until.atZone(ZoneOffset.UTC).toLocalDate()
@@ -74,6 +77,16 @@ internal class EspnSportsProvider(
         }
 
         for (scope in scopes) {
+            if (scope.sportPath == "wrestling") {
+                fetchWrestlingEvents(scope, request, allEvents)
+                continue
+            }
+
+            if (scope.customEndpoint != null) {
+                fetchScorepanelEvents(scope, request, allEvents, rejectedRef)
+                continue
+            }
+
             val endpoint = "${EspnSportsProviderFactory.BASE_URL}/${scope.fullPath}/scoreboard?dates=$dateParam&limit=250"
             val raw = rawJson(endpoint, FIXTURE_TTL)
             val jsonText = when (raw) {
@@ -102,12 +115,12 @@ internal class EspnSportsProvider(
                         }
                     }
                 } else {
-                    rejectedCount++
+                    rejectedRef.value++
                 }
             }
         }
 
-        return SportsProviderResult.Success(ProviderBatch(allEvents, rejectedCount))
+        return SportsProviderResult.Success(ProviderBatch(allEvents, rejectedRef.value))
     }
 
     override suspend fun liveScores(request: ProviderScoreRequest): SportsProviderResult<ProviderBatch<ProviderScore>> {
@@ -117,19 +130,33 @@ internal class EspnSportsProvider(
         var rejected = 0
 
         for (scope in scopes) {
+            if (scope.sportPath == "wrestling") {
+                fetchWrestlingScores(scope, scores)
+                continue
+            }
+
+            if (scope.customEndpoint != null) {
+                fetchScorepanelScores(scope, scores)
+                continue
+            }
+
             val endpoint = "${EspnSportsProviderFactory.BASE_URL}/${scope.fullPath}/scoreboard?dates=$today&limit=250"
             val raw = rawJson(endpoint, LIVE_SCORE_TTL)
-            val root = when (raw) {
-                is SportsProviderResult.Success -> parseObject(raw.value)
-                is SportsProviderResult.Failure -> null
-            } ?: continue
+            val jsonText = when (raw) {
+                is SportsProviderResult.Success -> raw.value
+                is SportsProviderResult.Failure -> {
+                    val mirrorUrl = "${EspnSportsProviderFactory.NUVIO_DATA_MIRROR}/espn/${scope.safeFileId}.json"
+                    when (val mirrorRes = rawJson(mirrorUrl, LIVE_SCORE_TTL)) {
+                        is SportsProviderResult.Success -> mirrorRes.value
+                        is SportsProviderResult.Failure -> continue
+                    }
+                }
+            }
 
+            val root = parseObject(jsonText) ?: continue
             val eventsArray = root.arrayOrNull("events") ?: continue
             for (i in 0 until eventsArray.size()) {
                 val evObj = eventsArray[i].asObjectOrNull() ?: continue
-                val eventId = evObj.stringOrNull("id") ?: continue
-                if (request.eventIds.isNotEmpty() && eventId !in request.eventIds) continue
-
                 val score = mapScore(evObj)
                 if (score != null) {
                     scores += score
@@ -142,9 +169,19 @@ internal class EspnSportsProvider(
         return SportsProviderResult.Success(ProviderBatch(scores, rejected))
     }
 
-    override suspend fun gameStatuses(request: ProviderScoreRequest): SportsProviderResult<ProviderBatch<ProviderEventStatus>> {
-        val liveResult = liveScores(request)
-        return when (liveResult) {
+    override suspend fun gameStatus(request: ProviderEventDetailRequest): SportsProviderResult<ProviderGameStatus> {
+        return when (val liveResult = liveScores(ProviderScoreRequest())) {
+            is SportsProviderResult.Failure -> liveResult
+            is SportsProviderResult.Success -> {
+                val match = liveResult.value.items.firstOrNull { it.providerEventId == request.eventId }
+                val status = match?.status ?: ProviderGameStatus(state = ProviderGameState.UNKNOWN)
+                SportsProviderResult.Success(status)
+            }
+        }
+    }
+
+    override suspend fun gameStatuses(request: ProviderEventBatchRequest): SportsProviderResult<ProviderBatch<ProviderEventStatus>> {
+        return when (val liveResult = liveScores(ProviderScoreRequest())) {
             is SportsProviderResult.Failure -> liveResult
             is SportsProviderResult.Success -> {
                 val statuses = liveResult.value.items.mapNotNull { score ->
@@ -193,8 +230,230 @@ internal class EspnSportsProvider(
     }
 
     override suspend fun broadcasters(request: ProviderEventDetailRequest): SportsProviderResult<ProviderBatch<ProviderBroadcaster>> {
-        // Broadcasters are populated during event mapping
         return SportsProviderResult.Success(ProviderBatch(emptyList()))
+    }
+
+    private suspend fun fetchWrestlingEvents(
+        scope: EspnLeagueScope,
+        request: ProviderEventRequest,
+        allEvents: MutableList<ProviderEvent>,
+    ) {
+        val endpoint = scope.customEndpoint ?: return
+        val raw = rawJson(endpoint, FIXTURE_TTL)
+        val jsonText = when (raw) {
+            is SportsProviderResult.Success -> raw.value
+            is SportsProviderResult.Failure -> return
+        }
+        val root = parseObject(jsonText) ?: return
+
+        val leagueBadges = mutableMapOf<String, String>()
+        val leagueNames = mutableMapOf<String, String>()
+        val brandBadges = mutableMapOf<String, String>()
+
+        root.arrayOrNull("leagues")?.forEach { lItem ->
+            val lObj = lItem.asObjectOrNull() ?: return@forEach
+            val key = lObj.stringOrNull("key") ?: return@forEach
+            val name = lObj.stringOrNull("name") ?: key
+            val badge = lObj.stringOrNull("badge")
+            if (badge != null && badge.startsWith("https://")) {
+                leagueBadges[key] = badge
+            }
+            leagueNames[key] = name
+
+            lObj.arrayOrNull("brands")?.forEach { bItem ->
+                val bObj = bItem.asObjectOrNull() ?: return@forEach
+                val word = bObj.stringOrNull("word")?.lowercase(Locale.ROOT)?.trim() ?: return@forEach
+                val bBadge = bObj.stringOrNull("badge")
+                if (bBadge != null && bBadge.startsWith("https://")) {
+                    brandBadges["$key|$word"] = bBadge
+                }
+            }
+        }
+
+        val now = clock.instant()
+        val targetKey = if (scope.leagueCode == "major-boxing") "boxing" else scope.leagueCode
+
+        val eventsArray = root.arrayOrNull("events") ?: return
+        for (i in 0 until eventsArray.size()) {
+            val evObj = eventsArray[i].asObjectOrNull() ?: continue
+            val evLeague = evObj.stringOrNull("league") ?: continue
+            if (!evLeague.equals(targetKey, ignoreCase = true)) continue
+
+            val id = evObj.stringOrNull("id") ?: continue
+            val rawName = evObj.stringOrNull("name") ?: continue
+            val name = cleanWrestlingTitle(rawName)
+            val startStr = evObj.stringOrNull("start") ?: continue
+            val start = startStr.toInstantOrNull() ?: continue
+            val end = start.plus(Duration.ofHours(3))
+
+            if (start.isBefore(request.from) || !start.isBefore(request.until)) continue
+
+            val state = when {
+                now.isAfter(end) -> ProviderGameState.FINAL
+                !now.isBefore(start) -> ProviderGameState.LIVE
+                else -> ProviderGameState.SCHEDULED
+            }
+            val status = ProviderGameStatus(
+                state = state,
+                detail = listOfNotNull(evObj.stringOrNull("venue"), evObj.stringOrNull("country")).joinToString(" · ").ifBlank { null },
+                updatedAt = now,
+            )
+
+            val lowerName = name.lowercase(Locale.ROOT)
+            var matchedLogo = leagueBadges[evLeague]
+            brandBadges.forEach { (kw, bLogo) ->
+                val brandWord = kw.substringAfter("|")
+                if (lowerName.contains(brandWord)) {
+                    matchedLogo = bLogo
+                }
+            }
+
+            val competitor = ProviderCompetitor(
+                name = name,
+                id = "wrestling_${evLeague}_$id",
+                kind = ProviderCompetitorKind.TEAM,
+                role = ProviderCompetitorRole.HOME,
+                logoUrl = matchedLogo,
+            )
+            competitor.id?.let { knownTeams[it] = competitor }
+
+            val event = ProviderEvent(
+                providerEventId = "wrestling_$id",
+                sport = scope.genericSport,
+                league = ProviderLeague(name = leagueNames[evLeague] ?: scope.displayName, id = evLeague, sport = scope.genericSport),
+                title = name,
+                competitors = listOf(competitor),
+                eventStart = start,
+                eventEnd = end,
+                status = status,
+                broadcasters = emptyList(),
+            )
+            allEvents += event
+        }
+    }
+
+    private suspend fun fetchWrestlingScores(
+        scope: EspnLeagueScope,
+        scores: MutableList<ProviderScore>,
+    ) {
+        val endpoint = scope.customEndpoint ?: return
+        val raw = rawJson(endpoint, LIVE_SCORE_TTL)
+        val jsonText = when (raw) {
+            is SportsProviderResult.Success -> raw.value
+            is SportsProviderResult.Failure -> return
+        }
+        val root = parseObject(jsonText) ?: return
+        val now = clock.instant()
+        val targetKey = if (scope.leagueCode == "major-boxing") "boxing" else scope.leagueCode
+
+        val eventsArray = root.arrayOrNull("events") ?: return
+        for (i in 0 until eventsArray.size()) {
+            val evObj = eventsArray[i].asObjectOrNull() ?: continue
+            val evLeague = evObj.stringOrNull("league") ?: continue
+            if (!evLeague.equals(targetKey, ignoreCase = true)) continue
+
+            val id = evObj.stringOrNull("id") ?: continue
+            val rawName = evObj.stringOrNull("name") ?: continue
+            val name = cleanWrestlingTitle(rawName)
+            val start = evObj.stringOrNull("start")?.toInstantOrNull() ?: continue
+            val end = start.plus(Duration.ofHours(3))
+
+            // Only report scores if happening today / within active window
+            val windowStart = now.minus(Duration.ofHours(24))
+            val windowEnd = now.plus(Duration.ofHours(24))
+            if (start.isBefore(windowStart) || start.isAfter(windowEnd)) continue
+
+            val state = when {
+                now.isAfter(end) -> ProviderGameState.FINAL
+                !now.isBefore(start) -> ProviderGameState.LIVE
+                else -> ProviderGameState.SCHEDULED
+            }
+
+            val status = ProviderGameStatus(
+                state = state,
+                detail = listOfNotNull(evObj.stringOrNull("venue"), evObj.stringOrNull("country")).joinToString(" · ").ifBlank { null },
+                updatedAt = now,
+            )
+
+            scores += ProviderScore(
+                providerEventId = "wrestling_$id",
+                scores = listOf(
+                    ProviderCompetitorScore(
+                        competitor = ProviderCompetitor(
+                            name = name,
+                            id = "wrestling_${evLeague}_$id",
+                            kind = ProviderCompetitorKind.TEAM,
+                            role = ProviderCompetitorRole.HOME,
+                        ),
+                        value = if (state == ProviderGameState.LIVE) "LIVE" else null,
+                    )
+                ),
+                status = status,
+                updatedAt = now,
+            )
+        }
+    }
+
+    private suspend fun fetchScorepanelEvents(
+        scope: EspnLeagueScope,
+        request: ProviderEventRequest,
+        allEvents: MutableList<ProviderEvent>,
+        rejectedRef: IntRef,
+    ) {
+        val endpoint = scope.customEndpoint ?: return
+        val raw = rawJson(endpoint, FIXTURE_TTL)
+        val jsonText = when (raw) {
+            is SportsProviderResult.Success -> raw.value
+            is SportsProviderResult.Failure -> return
+        }
+        val root = parseObject(jsonText) ?: return
+        val scoresArray = root.arrayOrNull("scores") ?: return
+
+        for (sIndex in 0 until scoresArray.size()) {
+            val sObj = scoresArray[sIndex].asObjectOrNull() ?: continue
+            val evArray = sObj.arrayOrNull("events") ?: continue
+            for (i in 0 until evArray.size()) {
+                val evObj = evArray[i].asObjectOrNull() ?: continue
+                val event = mapEvent(evObj, scope)
+                if (event != null) {
+                    val start = event.eventStart
+                    if (start == null || (!start.isBefore(request.from) && start.isBefore(request.until))) {
+                        allEvents += event
+                        event.competitors.forEach { comp ->
+                            comp.id?.let { knownTeams[it] = comp }
+                        }
+                    }
+                } else {
+                    rejectedRef.value++
+                }
+            }
+        }
+    }
+
+    private suspend fun fetchScorepanelScores(
+        scope: EspnLeagueScope,
+        scores: MutableList<ProviderScore>,
+    ) {
+        val endpoint = scope.customEndpoint ?: return
+        val raw = rawJson(endpoint, LIVE_SCORE_TTL)
+        val jsonText = when (raw) {
+            is SportsProviderResult.Success -> raw.value
+            is SportsProviderResult.Failure -> return
+        }
+        val root = parseObject(jsonText) ?: return
+        val scoresArray = root.arrayOrNull("scores") ?: return
+
+        for (sIndex in 0 until scoresArray.size()) {
+            val sObj = scoresArray[sIndex].asObjectOrNull() ?: continue
+            val evArray = sObj.arrayOrNull("events") ?: continue
+            for (i in 0 until evArray.size()) {
+                val evObj = evArray[i].asObjectOrNull() ?: continue
+                val score = mapScore(evObj)
+                if (score != null) {
+                    scores += score
+                }
+            }
+        }
     }
 
     private fun mapEvent(ev: JsonObject, scope: EspnScope): ProviderEvent? {
@@ -428,6 +687,9 @@ internal class EspnSportsProvider(
 
     private fun resolveScope(sport: String?, leagueId: String?): EspnScope? =
         resolveScopes(sport, leagueId).firstOrNull()
+
+    private fun cleanWrestlingTitle(title: String): String =
+        title.replace(Regex("""\s*-\s*[A-Za-z]+\s+\d+(?:st|nd|rd|th)?\s+\d{4}"""), "").trim()
 
     private fun String.toInstantOrNull(): Instant? =
         runCatching { Instant.parse(this) }.getOrNull()
