@@ -22,7 +22,7 @@ import kotlinx.coroutines.CancellationException
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 
-internal data class EspnLeagueScope(
+data class EspnLeagueScope(
     val sportPath: String,
     val leagueCode: String,
     val displayName: String,
@@ -169,19 +169,8 @@ internal class EspnSportsProvider(
         return SportsProviderResult.Success(ProviderBatch(scores, rejected))
     }
 
-    override suspend fun gameStatus(request: ProviderEventDetailRequest): SportsProviderResult<ProviderGameStatus> {
-        return when (val liveResult = liveScores(ProviderScoreRequest())) {
-            is SportsProviderResult.Failure -> liveResult
-            is SportsProviderResult.Success -> {
-                val match = liveResult.value.items.firstOrNull { it.providerEventId == request.eventId }
-                val status = match?.status ?: ProviderGameStatus(state = ProviderGameState.UNKNOWN)
-                SportsProviderResult.Success(status)
-            }
-        }
-    }
-
-    override suspend fun gameStatuses(request: ProviderEventBatchRequest): SportsProviderResult<ProviderBatch<ProviderEventStatus>> {
-        return when (val liveResult = liveScores(ProviderScoreRequest())) {
+    override suspend fun gameStatuses(request: ProviderScoreRequest): SportsProviderResult<ProviderBatch<ProviderEventStatus>> {
+        return when (val liveResult = liveScores(request)) {
             is SportsProviderResult.Failure -> liveResult
             is SportsProviderResult.Success -> {
                 val statuses = liveResult.value.items.mapNotNull { score ->
