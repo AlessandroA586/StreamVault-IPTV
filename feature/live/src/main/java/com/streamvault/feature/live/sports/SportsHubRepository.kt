@@ -335,7 +335,10 @@ internal class SportsHubRepository @Inject constructor(
         _uiState.update { state ->
             state.copy(
                 events = state.events.filter { event ->
-                    programMatchesRange(event.startTime, event.endTime, state.selectedTimeRange, now, window)
+                    programMatchesRange(
+                        event.startTime, event.endTime, state.selectedTimeRange, now, window,
+                        event.provenance.status?.value?.state,
+                    )
                 },
                 nowMillis = now,
             )
@@ -453,7 +456,7 @@ internal class SportsHubRepository @Inject constructor(
                 val entries = providerData.flatMap { it.channels }
                 availableChannelEntries = entries
                 // The guide is usable immediately, even when a remote API is slow.
-                if (!providerTask.isCompleted && (assembled.isNotEmpty() || eventProviders.isEmpty())) {
+                if (eventProviders.isEmpty() && assembled.isNotEmpty()) {
                     withContext(Dispatchers.Main.immediate) { publishEvents(assembled, range, now, window) }
                 }
                 val providerEventLoad = providerTask.await()
@@ -473,8 +476,11 @@ internal class SportsHubRepository @Inject constructor(
                         ),
                         now = Instant.ofEpochMilli(now),
                 )
+                val hasApiEvents = sourcedProviderEvents.isNotEmpty()
+                val catalogEvents = catalogResolved.mapNotNull { it.toSportsHubEvent(hasApiEvents) }
+                val deduplicatedCatalog = if (hasApiEvents) deduplicateMatches(catalogEvents) else catalogEvents
                 withContext(Dispatchers.Main.immediate) {
-                    publishEvents(catalogResolved.mapNotNull { it.toSportsHubEvent() }, range, now, window)
+                    publishEvents(deduplicatedCatalog, range, now, window)
                 }
                 val providerResolved = withTimeoutOrNull(ENRICHMENT_TIMEOUT_MS) {
                     sportsProviderEventSourceRouter.enrichBroadcasters(
@@ -487,10 +493,13 @@ internal class SportsHubRepository @Inject constructor(
                     itemCount = assembled.size,
                     groupCount = sourcedProviderEvents.size,
                 )
-                val resolved = providerResolved.mapNotNull { resolved ->
+                val resolved = providerResolved.mapNotNull { resolvedItem ->
                     currentCoroutineContext().ensureActive()
-                    resolved.toSportsHubEvent()?.takeIf { event ->
-                        programMatchesRange(event.startTime, event.endTime, range, now, window)
+                    resolvedItem.toSportsHubEvent(hasApiEvents)?.takeIf { event ->
+                        programMatchesRange(
+                            event.startTime, event.endTime, range, now, window,
+                            event.provenance.status?.value?.state,
+                        )
                     }?.let { event ->
                         val resolvedEvent = if (event.broadcasts.none { it.channel.streamUrl.isNotBlank() }) {
                             SportsEventFallbackResolver.addFallbacksWhenDirectChoicesAreUnavailable(event, channelIndex)
@@ -502,8 +511,9 @@ internal class SportsHubRepository @Inject constructor(
                         resolvedEvent
                     }
                 }
-                if (cacheKey != null) cacheEvents(cacheKey, resolved, providerEventLoad)
-                resolved to providerEventLoad
+                val finalEvents = if (hasApiEvents) deduplicateMatches(resolved) else resolved
+                if (cacheKey != null) cacheEvents(cacheKey, finalEvents, providerEventLoad)
+                finalEvents to providerEventLoad
             }
             publishEvents(baseEvents, range, now, window)
             val selectedEventProviderInstanceId = reusableProviderEvents.instanceId
@@ -553,7 +563,8 @@ internal class SportsHubRepository @Inject constructor(
                     itemCount = baseEvents.size,
                     groupCount = sourcedScoreEvents.size,
                 )
-                resolved.mapNotNull { it.toSportsHubEvent() }
+                val mapped = resolved.mapNotNull { it.toSportsHubEvent(hasProviderEvents = sourcedScoreEvents.isNotEmpty()) }
+                if (sourcedScoreEvents.isNotEmpty()) deduplicateMatches(mapped) else mapped
             }
             val eventCatalogs = listOf(
                 reusableProviderEvents,
@@ -698,10 +709,35 @@ internal class SportsHubRepository @Inject constructor(
         sportsProviderExtraDetailsRouter.load(event)
     }
 
-    private fun SportsResolvedEvent.toSportsHubEvent(): SportsEvent? {
+    private fun SportsResolvedEvent.toSportsHubEvent(hasProviderEvents: Boolean = false): SportsEvent? {
         val local = epgEvent
+        val providerEventValue = providerEvent?.value
         if (local != null) {
+            if (hasProviderEvents && providerEventValue == null) {
+                return null
+            }
             val resolvedLeague = provenance.league?.value?.name?.takeIf(String::isNotBlank) ?: local.league
+            val competitors = if (providerEventValue != null && providerEventValue.competitors.isNotEmpty()) {
+                providerEventValue.competitors.map { comp ->
+                    SportsCompetitor(
+                        name = comp.name,
+                        canonicalName = SportsAliasRegistry.normalizeTeamName(comp.name),
+                        logoUrl = comp.logoUrl,
+                        role = when (comp.role) {
+                            com.streamvault.domain.sports.provider.ProviderCompetitorRole.HOME -> SportsCompetitorRole.HOME
+                            com.streamvault.domain.sports.provider.ProviderCompetitorRole.AWAY -> SportsCompetitorRole.AWAY
+                            else -> SportsCompetitorRole.UNKNOWN
+                        },
+                    )
+                }
+            } else {
+                local.competitors.map { competitor ->
+                    val providerCompetitor = providerEventValue?.competitors?.firstOrNull {
+                        SportsAliasRegistry.normalizeTeamName(it.name) == competitor.canonicalName
+                    }
+                    competitor.copy(logoUrl = providerCompetitor?.logoUrl ?: competitor.logoUrl)
+                }
+            }
             return local.copy(
                 title = provenance.title?.value?.takeIf(String::isNotBlank) ?: local.title,
                 league = resolvedLeague,
@@ -709,16 +745,11 @@ internal class SportsHubRepository @Inject constructor(
                     SportsLeagueRegistry.detectNormalized(SportsTextNormalizer.normalize(league))
                 },
                 provenance = provenance,
-                competitors = local.competitors.map { competitor ->
-                    val providerCompetitor = providerEvent?.value?.competitors?.firstOrNull {
-                        SportsAliasRegistry.normalizeTeamName(it.name) == competitor.canonicalName
-                    }
-                    competitor.copy(logoUrl = providerCompetitor?.logoUrl ?: competitor.logoUrl)
-                },
+                competitors = competitors,
             )
         }
 
-        val providerEvent = providerEvent?.value ?: return null
+        val providerEvent = providerEventValue ?: return null
         val eventStart = providerEvent.eventStart ?: return null
         val title = providerEvent.title?.takeIf(String::isNotBlank)
             ?: providerEvent.competitors.takeIf { it.isNotEmpty() }
@@ -747,7 +778,16 @@ internal class SportsHubRepository @Inject constructor(
             broadcasts = emptyList(),
             confidence = 0.85f,
             competitors = providerEvent.competitors.map { competitor ->
-                SportsCompetitor(competitor.name, logoUrl = competitor.logoUrl)
+                SportsCompetitor(
+                    name = competitor.name,
+                    canonicalName = SportsAliasRegistry.normalizeTeamName(competitor.name),
+                    logoUrl = competitor.logoUrl,
+                    role = when (competitor.role) {
+                        com.streamvault.domain.sports.provider.ProviderCompetitorRole.HOME -> SportsCompetitorRole.HOME
+                        com.streamvault.domain.sports.provider.ProviderCompetitorRole.AWAY -> SportsCompetitorRole.AWAY
+                        else -> SportsCompetitorRole.UNKNOWN
+                    },
+                )
             },
             session = providerEvent.session,
             eventType = providerEvent.status?.state.toSportsEventType(),
@@ -755,6 +795,27 @@ internal class SportsHubRepository @Inject constructor(
             leagueInfo = league?.let { SportsLeagueRegistry.detectNormalized(SportsTextNormalizer.normalize(it)) },
             provenance = provenance,
         )
+    }
+
+    private fun deduplicateMatches(events: List<SportsEvent>): List<SportsEvent> {
+        val map = linkedMapOf<String, SportsEvent>()
+        for (event in events) {
+            val key = event.provenance.title?.value?.takeIf(String::isNotBlank)
+                ?: (if (event.competitors.size >= 2) {
+                    val c1 = event.competitors[0].canonicalName
+                    val c2 = event.competitors[1].canonicalName
+                    if (c1 <= c2) "${c1}_vs_$c2" else "${c2}_vs_$c1"
+                } else null)
+                ?: event.title
+            val existing = map[key]
+            if (existing != null) {
+                val mergedBroadcasts = (existing.broadcasts + event.broadcasts).distinctBy { it.channel.id }
+                map[key] = existing.copy(broadcasts = mergedBroadcasts)
+            } else {
+                map[key] = event
+            }
+        }
+        return map.values.toList()
     }
 
     private fun com.streamvault.domain.sports.provider.ProviderGameState?.toSportsEventType(): SportsEventType = when (this) {
@@ -1031,12 +1092,30 @@ internal class SportsHubRepository @Inject constructor(
         range: SportsTimeRange,
         now: Long,
         window: SportsTimeWindow,
+        state: com.streamvault.domain.sports.provider.ProviderGameState? = null,
     ): Boolean = when (range) {
-        SportsTimeRange.ON_NOW -> startTime <= now && endTime > now
-        SportsTimeRange.TODAY -> endTime > now && startTime < window.endTime
-        SportsTimeRange.UPCOMING -> startTime >= window.startTime && startTime < window.endTime
-        SportsTimeRange.FEATURED -> endTime > now && startTime < window.endTime
-        SportsTimeRange.COMPLETED -> endTime <= now && localDate(endTime) == localDate(now) && startTime >= window.startTime
+        SportsTimeRange.ON_NOW -> {
+            if (state == com.streamvault.domain.sports.provider.ProviderGameState.LIVE) true
+            else if (state == com.streamvault.domain.sports.provider.ProviderGameState.FINAL ||
+                state == com.streamvault.domain.sports.provider.ProviderGameState.CANCELLED ||
+                state == com.streamvault.domain.sports.provider.ProviderGameState.POSTPONED) false
+            else startTime <= now && endTime > now
+        }
+        SportsTimeRange.COMPLETED -> {
+            if (state == com.streamvault.domain.sports.provider.ProviderGameState.FINAL) true
+            else if (state == com.streamvault.domain.sports.provider.ProviderGameState.LIVE) false
+            else endTime <= now && localDate(endTime) == localDate(now) && startTime >= window.startTime
+        }
+        SportsTimeRange.UPCOMING -> {
+            if (state == com.streamvault.domain.sports.provider.ProviderGameState.LIVE ||
+                state == com.streamvault.domain.sports.provider.ProviderGameState.FINAL) false
+            else startTime >= window.startTime && startTime < window.endTime
+        }
+        SportsTimeRange.FEATURED,
+        SportsTimeRange.TODAY -> {
+            if (state == com.streamvault.domain.sports.provider.ProviderGameState.FINAL) false
+            else endTime > now && startTime < window.endTime
+        }
     }
 
     private fun localDate(timestamp: Long): LocalDate =

@@ -81,8 +81,8 @@ android {
         applicationId = "com.streamvault.app"
         minSdk = 25
         targetSdk = 36
-        versionCode = 28
-        versionName = "1.2.6"
+        versionCode = 29
+        versionName = "1.2.7"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "TRAKT_CLIENT_ID", buildStringLiteral(traktClientId))
         buildConfigField("String", "TRAKT_REDIRECT_URI", buildStringLiteral(traktRedirectUri))

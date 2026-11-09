@@ -2,6 +2,17 @@
 
 All notable product changes are recorded in this document.
 
+## [1.2.7]
+
+### Added
+- Sports API as sole event generator: matches are strictly sourced from verified API feeds (ESPN / custom configured provider), eliminating phantom raw EPG broadcast entries and reruns.
+- Official high-resolution team crests and transparent shields across the Hero matchup, event fixture cards, and details dialogs.
+- Official league emblem badges in the league filter chips and header cards for major soccer competitions, basketball, motorsport, tennis, American football, baseball, hockey, MMA, cricket, and golf.
+- Multi-sport live feed under "En vivo ahora": all concurrent live matches across configured sports are displayed with real-time scores and elapsed match clocks.
+- Parallel scope fetching for sports feeds, reducing initial Sports Hub loading latency from over 20 seconds to ~1.5 seconds.
+- Match deduplication: coalesces identical fixtures broadcast on multiple channels into a single unified event card with all channel choices available.
+- Disabled sports lacking live API feed coverage (e.g., cycling).
+
 ## [1.2.6]
 
 ### Added

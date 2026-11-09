@@ -322,6 +322,24 @@ internal fun SportsSportFilter.labelResource(): Int = when (this) {
     SportsSportFilter.OTHER -> R.string.live_sports_filter_other
 }
 
+internal fun SportsSportFilter.hasApiSupport(): Boolean = when (this) {
+    SportsSportFilter.ALL,
+    SportsSportFilter.FOOTBALL,
+    SportsSportFilter.BASKETBALL,
+    SportsSportFilter.MOTORSPORT,
+    SportsSportFilter.TENNIS,
+    SportsSportFilter.BOXING,
+    SportsSportFilter.CRICKET,
+    SportsSportFilter.MMA,
+    SportsSportFilter.AMERICAN_FOOTBALL,
+    SportsSportFilter.BASEBALL,
+    SportsSportFilter.HOCKEY,
+    SportsSportFilter.RUGBY,
+    SportsSportFilter.GOLF -> true
+    SportsSportFilter.CYCLING,
+    SportsSportFilter.OTHER -> false
+}
+
 internal val SportsSportFilter.discoveryKey: String?
     get() = when (this) {
         SportsSportFilter.ALL -> null

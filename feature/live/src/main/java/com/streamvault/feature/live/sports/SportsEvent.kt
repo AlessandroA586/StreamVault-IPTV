@@ -159,11 +159,23 @@ internal fun SportsEvent.broadcastStatusAt(nowMillis: Long): SportsBroadcastStat
     else -> SportsBroadcastStatus.ENDED
 }
 
-internal fun SportsEvent.isLiveAt(nowMillis: Long): Boolean =
-    nowMillis in startTime until endTime
+internal fun SportsEvent.isLiveAt(nowMillis: Long): Boolean {
+    val state = provenance.status?.value?.state
+    if (state == com.streamvault.domain.sports.provider.ProviderGameState.LIVE) return true
+    if (state == com.streamvault.domain.sports.provider.ProviderGameState.FINAL ||
+        state == com.streamvault.domain.sports.provider.ProviderGameState.CANCELLED ||
+        state == com.streamvault.domain.sports.provider.ProviderGameState.POSTPONED) return false
+    return nowMillis in startTime until endTime
+}
 
-internal fun SportsEvent.isCompletedAt(nowMillis: Long): Boolean =
-    nowMillis >= endTime
+internal fun SportsEvent.isCompletedAt(nowMillis: Long): Boolean {
+    val state = provenance.status?.value?.state
+    if (state == com.streamvault.domain.sports.provider.ProviderGameState.FINAL ||
+        state == com.streamvault.domain.sports.provider.ProviderGameState.CANCELLED ||
+        state == com.streamvault.domain.sports.provider.ProviderGameState.POSTPONED) return true
+    if (state == com.streamvault.domain.sports.provider.ProviderGameState.LIVE) return false
+    return nowMillis >= endTime
+}
 
 internal fun SportsEvent.matches(filter: SportsSportFilter): Boolean = when (filter) {
     SportsSportFilter.ALL -> true

@@ -197,3 +197,97 @@ internal object SportsLeagueRegistry {
         )
     }
 }
+
+internal object SportsLeagueBadgeRegistry {
+    private const val ESPN_SOCCER_BASE = "https://a.espncdn.com/i/leaguelogos/soccer/500"
+    private const val ESPN_LEAGUE_BASE = "https://a.espncdn.com/i/teamlogos/leagues/500"
+
+    private val badges = mapOf(
+        // Football / Soccer
+        "premier-league" to "$ESPN_SOCCER_BASE/23.png",
+        "eng.1" to "$ESPN_SOCCER_BASE/23.png",
+        "epl" to "$ESPN_SOCCER_BASE/23.png",
+        "la-liga" to "$ESPN_SOCCER_BASE/15.png",
+        "esp.1" to "$ESPN_SOCCER_BASE/15.png",
+        "laliga" to "$ESPN_SOCCER_BASE/15.png",
+        "serie-a" to "$ESPN_SOCCER_BASE/12.png",
+        "ita.1" to "$ESPN_SOCCER_BASE/12.png",
+        "bundesliga" to "$ESPN_SOCCER_BASE/10.png",
+        "ger.1" to "$ESPN_SOCCER_BASE/10.png",
+        "ligue-1" to "$ESPN_SOCCER_BASE/9.png",
+        "fra.1" to "$ESPN_SOCCER_BASE/9.png",
+        "uefa-champions-league" to "$ESPN_SOCCER_BASE/2.png",
+        "champions-league" to "$ESPN_SOCCER_BASE/2.png",
+        "uefa.champions" to "$ESPN_SOCCER_BASE/2.png",
+        "ucl" to "$ESPN_SOCCER_BASE/2.png",
+        "uefa-europa-league" to "$ESPN_SOCCER_BASE/2035.png",
+        "europa-league" to "$ESPN_SOCCER_BASE/2035.png",
+        "uefa.europa" to "$ESPN_SOCCER_BASE/2035.png",
+        "uel" to "$ESPN_SOCCER_BASE/2035.png",
+        "uefa-conference-league" to "$ESPN_SOCCER_BASE/2085.png",
+        "conference-league" to "$ESPN_SOCCER_BASE/2085.png",
+        "uefa.europa.conf" to "$ESPN_SOCCER_BASE/2085.png",
+        "eredivisie" to "$ESPN_SOCCER_BASE/11.png",
+        "ned.1" to "$ESPN_SOCCER_BASE/11.png",
+        "primeira-liga" to "$ESPN_SOCCER_BASE/14.png",
+        "por.1" to "$ESPN_SOCCER_BASE/14.png",
+        "major-league-soccer" to "$ESPN_SOCCER_BASE/19.png",
+        "mls" to "$ESPN_SOCCER_BASE/19.png",
+        "usa.1" to "$ESPN_SOCCER_BASE/19.png",
+        "copa-libertadores" to "$ESPN_SOCCER_BASE/24.png",
+        "conmebol.libertadores" to "$ESPN_SOCCER_BASE/24.png",
+        "copa-sudamericana" to "$ESPN_SOCCER_BASE/25.png",
+        "copa-sul-americana" to "$ESPN_SOCCER_BASE/25.png",
+        "conmebol.sudamericana" to "$ESPN_SOCCER_BASE/25.png",
+        "liga-mx" to "$ESPN_SOCCER_BASE/22.png",
+        "mex.1" to "$ESPN_SOCCER_BASE/22.png",
+        "brasileirao-serie-a" to "$ESPN_SOCCER_BASE/85.png",
+        "brasileirao" to "$ESPN_SOCCER_BASE/85.png",
+        "bra.1" to "$ESPN_SOCCER_BASE/85.png",
+        "arg.1" to "$ESPN_SOCCER_BASE/1.png",
+        "col.1" to "$ESPN_SOCCER_BASE/107.png",
+        // Basketball
+        "nba" to "$ESPN_LEAGUE_BASE/nba.png",
+        "wnba" to "$ESPN_LEAGUE_BASE/wnba.png",
+        // American Football
+        "nfl" to "$ESPN_LEAGUE_BASE/nfl.png",
+        // Baseball
+        "mlb" to "$ESPN_LEAGUE_BASE/mlb.png",
+        // Hockey
+        "nhl" to "$ESPN_LEAGUE_BASE/nhl.png",
+        // Motorsport
+        "formula-1" to "$ESPN_LEAGUE_BASE/f1.png",
+        "formula-one" to "$ESPN_LEAGUE_BASE/f1.png",
+        "f1" to "$ESPN_LEAGUE_BASE/f1.png",
+        "motogp" to "$ESPN_LEAGUE_BASE/motogp.png",
+        "nascar" to "$ESPN_LEAGUE_BASE/nascar.png",
+        "indycar" to "$ESPN_LEAGUE_BASE/indycar.png",
+        // Tennis
+        "atp-tour" to "$ESPN_LEAGUE_BASE/atp.png",
+        "atp" to "$ESPN_LEAGUE_BASE/atp.png",
+        "wta-tour" to "$ESPN_LEAGUE_BASE/wta.png",
+        "wta" to "$ESPN_LEAGUE_BASE/wta.png",
+        // MMA & Combat
+        "ufc" to "$ESPN_LEAGUE_BASE/ufc.png",
+        "boxing" to "$ESPN_LEAGUE_BASE/boxing.png",
+        // Golf
+        "pga-tour" to "$ESPN_LEAGUE_BASE/pga.png",
+        "pga" to "$ESPN_LEAGUE_BASE/pga.png",
+        "lpga-tour" to "$ESPN_LEAGUE_BASE/lpga.png",
+        // Cricket
+        "indian-premier-league" to "$ESPN_LEAGUE_BASE/ipl.png",
+        "ipl" to "$ESPN_LEAGUE_BASE/ipl.png",
+    )
+
+    fun badgeUrl(leagueKeyOrName: String?): String? {
+        if (leagueKeyOrName.isNullOrBlank()) return null
+        val raw = leagueKeyOrName.trim()
+        val direct = badges[raw.lowercase(Locale.ROOT)]
+        if (direct != null) return direct
+
+        val normalized = SportsTextNormalizer.normalize(raw).replace(' ', '-')
+        return badges[normalized]
+            ?: badges[normalized.removePrefix("league-")]
+            ?: badges[normalized.substringAfterLast('/')]
+    }
+}

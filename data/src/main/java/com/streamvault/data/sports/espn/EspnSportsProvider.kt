@@ -19,6 +19,9 @@ import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 
@@ -65,9 +68,6 @@ internal class EspnSportsProvider(
         val scopes = resolveScopes(request.sport, request.leagueId)
         if (scopes.isEmpty()) return SportsProviderResult.Success(ProviderBatch(emptyList()))
 
-        val allEvents = mutableListOf<ProviderEvent>()
-        val rejectedRef = IntRef(0)
-
         val fromDate = request.from.atZone(ZoneOffset.UTC).toLocalDate()
         val untilDate = request.until.atZone(ZoneOffset.UTC).toLocalDate()
         val dateParam = if (fromDate == untilDate) {
@@ -76,97 +76,123 @@ internal class EspnSportsProvider(
             "${fromDate.format(DATE_FORMATTER)}-${untilDate.format(DATE_FORMATTER)}"
         }
 
-        for (scope in scopes) {
-            if (scope.sportPath == "wrestling") {
-                fetchWrestlingEvents(scope, request, allEvents)
-                continue
-            }
+        val scopeResults = coroutineScope {
+            scopes.map { scope ->
+                async {
+                    val scopeEvents = mutableListOf<ProviderEvent>()
+                    val scopeRejected = IntRef(0)
 
-            if (scope.customEndpoint != null) {
-                fetchScorepanelEvents(scope, request, allEvents, rejectedRef)
-                continue
-            }
+                    if (scope.sportPath == "wrestling") {
+                        fetchWrestlingEvents(scope, request, scopeEvents)
+                    } else if (scope.customEndpoint != null) {
+                        fetchScorepanelEvents(scope, request, scopeEvents, scopeRejected)
+                    } else {
+                        val endpoint = "${EspnSportsProviderFactory.BASE_URL}/${scope.fullPath}/scoreboard?dates=$dateParam&limit=250"
+                        val raw = rawJson(endpoint, FIXTURE_TTL)
+                        val jsonText = when (raw) {
+                            is SportsProviderResult.Success -> raw.value
+                            is SportsProviderResult.Failure -> {
+                                val mirrorUrl = "${EspnSportsProviderFactory.NUVIO_DATA_MIRROR}/espn/${scope.safeFileId}.json"
+                                when (val mirrorRes = rawJson(mirrorUrl, FIXTURE_TTL)) {
+                                    is SportsProviderResult.Success -> mirrorRes.value
+                                    is SportsProviderResult.Failure -> null
+                                }
+                            }
+                        }
 
-            val endpoint = "${EspnSportsProviderFactory.BASE_URL}/${scope.fullPath}/scoreboard?dates=$dateParam&limit=250"
-            val raw = rawJson(endpoint, FIXTURE_TTL)
-            val jsonText = when (raw) {
-                is SportsProviderResult.Success -> raw.value
-                is SportsProviderResult.Failure -> {
-                    // Fallback to nuvio-data mirror
-                    val mirrorUrl = "${EspnSportsProviderFactory.NUVIO_DATA_MIRROR}/espn/${scope.safeFileId}.json"
-                    when (val mirrorRes = rawJson(mirrorUrl, FIXTURE_TTL)) {
-                        is SportsProviderResult.Success -> mirrorRes.value
-                        is SportsProviderResult.Failure -> continue
-                    }
-                }
-            }
-
-            val root = parseObject(jsonText) ?: continue
-            val eventsArray = root.arrayOrNull("events") ?: continue
-            for (i in 0 until eventsArray.size()) {
-                val evObj = eventsArray[i].asObjectOrNull() ?: continue
-                val event = mapEvent(evObj, scope)
-                if (event != null) {
-                    val start = event.eventStart
-                    if (start == null || (!start.isBefore(request.from) && start.isBefore(request.until))) {
-                        allEvents += event
-                        event.competitors.forEach { comp ->
-                            comp.id?.let { knownTeams[it] = comp }
+                        if (jsonText != null) {
+                            val root = parseObject(jsonText)
+                            val eventsArray = root?.arrayOrNull("events")
+                            if (eventsArray != null) {
+                                for (i in 0 until eventsArray.size()) {
+                                    val evObj = eventsArray[i].asObjectOrNull() ?: continue
+                                    val event = mapEvent(evObj, scope)
+                                    if (event != null) {
+                                        val start = event.eventStart
+                                        if (start == null || (!start.isBefore(request.from) && start.isBefore(request.until))) {
+                                            scopeEvents += event
+                                            event.competitors.forEach { comp ->
+                                                comp.id?.let { knownTeams[it] = comp }
+                                            }
+                                        }
+                                    } else {
+                                        scopeRejected.value++
+                                    }
+                                }
+                            }
                         }
                     }
-                } else {
-                    rejectedRef.value++
+                    scopeEvents to scopeRejected.value
                 }
-            }
+            }.awaitAll()
         }
 
-        return SportsProviderResult.Success(ProviderBatch(allEvents, rejectedRef.value))
+        val allEvents = mutableListOf<ProviderEvent>()
+        var totalRejected = 0
+        for ((events, rejected) in scopeResults) {
+            allEvents += events
+            totalRejected += rejected
+        }
+
+        return SportsProviderResult.Success(ProviderBatch(allEvents, totalRejected))
     }
 
     override suspend fun liveScores(request: ProviderScoreRequest): SportsProviderResult<ProviderBatch<ProviderScore>> {
         val today = clock.instant().atZone(ZoneOffset.UTC).toLocalDate().format(DATE_FORMATTER)
         val scopes = configuredScopes()
-        val scores = mutableListOf<ProviderScore>()
-        var rejected = 0
 
-        for (scope in scopes) {
-            if (scope.sportPath == "wrestling") {
-                fetchWrestlingScores(scope, scores)
-                continue
-            }
+        val scopeResults = coroutineScope {
+            scopes.map { scope ->
+                async {
+                    val scopeScores = mutableListOf<ProviderScore>()
+                    var scopeRejected = 0
+                    if (scope.sportPath == "wrestling") {
+                        fetchWrestlingScores(scope, scopeScores)
+                    } else if (scope.customEndpoint != null) {
+                        fetchScorepanelScores(scope, scopeScores)
+                    } else {
+                        val endpoint = "${EspnSportsProviderFactory.BASE_URL}/${scope.fullPath}/scoreboard?dates=$today&limit=250"
+                        val raw = rawJson(endpoint, LIVE_SCORE_TTL)
+                        val jsonText = when (raw) {
+                            is SportsProviderResult.Success -> raw.value
+                            is SportsProviderResult.Failure -> {
+                                val mirrorUrl = "${EspnSportsProviderFactory.NUVIO_DATA_MIRROR}/espn/${scope.safeFileId}.json"
+                                when (val mirrorRes = rawJson(mirrorUrl, LIVE_SCORE_TTL)) {
+                                    is SportsProviderResult.Success -> mirrorRes.value
+                                    is SportsProviderResult.Failure -> null
+                                }
+                            }
+                        }
 
-            if (scope.customEndpoint != null) {
-                fetchScorepanelScores(scope, scores)
-                continue
-            }
-
-            val endpoint = "${EspnSportsProviderFactory.BASE_URL}/${scope.fullPath}/scoreboard?dates=$today&limit=250"
-            val raw = rawJson(endpoint, LIVE_SCORE_TTL)
-            val jsonText = when (raw) {
-                is SportsProviderResult.Success -> raw.value
-                is SportsProviderResult.Failure -> {
-                    val mirrorUrl = "${EspnSportsProviderFactory.NUVIO_DATA_MIRROR}/espn/${scope.safeFileId}.json"
-                    when (val mirrorRes = rawJson(mirrorUrl, LIVE_SCORE_TTL)) {
-                        is SportsProviderResult.Success -> mirrorRes.value
-                        is SportsProviderResult.Failure -> continue
+                        if (jsonText != null) {
+                            val root = parseObject(jsonText)
+                            val eventsArray = root?.arrayOrNull("events")
+                            if (eventsArray != null) {
+                                for (i in 0 until eventsArray.size()) {
+                                    val evObj = eventsArray[i].asObjectOrNull() ?: continue
+                                    val score = mapScore(evObj)
+                                    if (score != null) {
+                                        scopeScores += score
+                                    } else {
+                                        scopeRejected++
+                                    }
+                                }
+                            }
+                        }
                     }
+                    scopeScores to scopeRejected
                 }
-            }
-
-            val root = parseObject(jsonText) ?: continue
-            val eventsArray = root.arrayOrNull("events") ?: continue
-            for (i in 0 until eventsArray.size()) {
-                val evObj = eventsArray[i].asObjectOrNull() ?: continue
-                val score = mapScore(evObj)
-                if (score != null) {
-                    scores += score
-                } else {
-                    rejected++
-                }
-            }
+            }.awaitAll()
         }
 
-        return SportsProviderResult.Success(ProviderBatch(scores, rejected))
+        val allScores = mutableListOf<ProviderScore>()
+        var totalRejected = 0
+        for ((scores, rejected) in scopeResults) {
+            allScores += scores
+            totalRejected += rejected
+        }
+
+        return SportsProviderResult.Success(ProviderBatch(allScores, totalRejected))
     }
 
     override suspend fun gameStatuses(request: ProviderScoreRequest): SportsProviderResult<ProviderBatch<ProviderEventStatus>> {
@@ -197,7 +223,7 @@ internal class EspnSportsProvider(
 
     override suspend fun artwork(request: ProviderEntityRef): SportsProviderResult<ProviderBatch<ProviderArtwork>> {
         val team = knownTeams[request.id]
-        val logoUrl = team?.logoUrl
+        val logoUrl = team?.logoUrl?.toSecureHttpsUrl()
         return if (logoUrl != null && logoUrl.startsWith("https://")) {
             val artwork = ProviderArtwork(
                 entity = request,
@@ -302,7 +328,7 @@ internal class EspnSportsProvider(
                 id = "wrestling_${evLeague}_$id",
                 kind = ProviderCompetitorKind.TEAM,
                 role = ProviderCompetitorRole.HOME,
-                logoUrl = matchedLogo,
+                logoUrl = matchedLogo?.toSecureHttpsUrl(),
             )
             competitor.id?.let { knownTeams[it] = competitor }
 
@@ -477,7 +503,7 @@ internal class EspnSportsProvider(
                     id = teamId,
                     kind = ProviderCompetitorKind.TEAM,
                     role = if (isHome) ProviderCompetitorRole.HOME else ProviderCompetitorRole.AWAY,
-                    logoUrl = logo?.takeIf { it.startsWith("https://") },
+                    logoUrl = logo?.toSecureHttpsUrl(),
                 )
                 competitorsList += competitor
             }
@@ -619,7 +645,7 @@ internal class EspnSportsProvider(
                 name = teamName,
                 id = teamId,
                 kind = ProviderCompetitorKind.TEAM,
-                logoUrl = logo?.takeIf { it.startsWith("https://") },
+                logoUrl = logo?.toSecureHttpsUrl(),
             )
             rows += ProviderStandingRow(
                 competitor = competitor,
@@ -676,6 +702,18 @@ internal class EspnSportsProvider(
 
     private fun resolveScope(sport: String?, leagueId: String?): EspnScope? =
         resolveScopes(sport, leagueId).firstOrNull()
+
+    private fun String.toSecureHttpsUrl(): String? {
+        val trimmed = this.trim()
+        if (trimmed.isBlank()) return null
+        val secure = when {
+            trimmed.startsWith("https://", ignoreCase = true) -> trimmed
+            trimmed.startsWith("http://", ignoreCase = true) -> "https://${trimmed.substring(7)}"
+            trimmed.startsWith("//") -> "https:$trimmed"
+            else -> null
+        }
+        return secure?.takeIf { it.startsWith("https://", ignoreCase = true) }
+    }
 
     private fun cleanWrestlingTitle(title: String): String =
         title.replace(Regex("""\s*-\s*[A-Za-z]+\s+\d+(?:st|nd|rd|th)?\s+\d{4}"""), "").trim()

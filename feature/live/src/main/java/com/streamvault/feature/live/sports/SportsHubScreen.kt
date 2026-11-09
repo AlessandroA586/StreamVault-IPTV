@@ -86,6 +86,11 @@ import com.streamvault.core.ui.design.BrowseColors
 import com.streamvault.core.ui.design.BrowseShapes
 import com.streamvault.core.ui.design.contentOnColor
 import com.streamvault.core.ui.image.ChannelLogoBadge
+import com.streamvault.core.ui.image.rememberCrossfadeImageModel
+import coil3.compose.AsyncImage
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.unit.Dp
+import java.util.Locale
 import com.streamvault.core.ui.interaction.TvButton
 import com.streamvault.core.ui.interaction.TvClickableSurface
 import androidx.tv.material3.ClickableSurfaceDefaults
@@ -454,7 +459,7 @@ private fun SportsSportFilters(
 ) {
     val availableFilters = remember(excludedSports) {
         SportsSportFilter.entries.filter { filter ->
-            filter.discoveryKey == null || filter.discoveryKey !in excludedSports
+            filter.hasApiSupport() && (filter.discoveryKey == null || filter.discoveryKey !in excludedSports)
         }
     }
     Row(
@@ -489,8 +494,12 @@ private fun SportsLeagueFilters(
             onClick = { onSelected(null) },
         )
         leagues.forEach { league ->
+            val badgeUrl = SportsLeagueBadgeRegistry.badgeUrl(league.id)
+                ?: SportsLeagueBadgeRegistry.badgeUrl(league.label)
             SportsFilterButton(
                 label = league.label,
+                logoUrl = badgeUrl,
+                icon = if (badgeUrl == null) Icons.Default.Shield else null,
                 selected = selected == league.id,
                 onClick = { onSelected(league.id) },
             )
@@ -625,6 +634,7 @@ private fun SportsFilterButton(
     selected: Boolean,
     icon: ImageVector? = null,
     iconTint: Color? = null,
+    logoUrl: String? = null,
     onClick: () -> Unit,
 ) {
     TvButton(
@@ -650,7 +660,16 @@ private fun SportsFilterButton(
         shape = ButtonDefaults.shape(BrowseShapes.Control),
         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
     ) {
-        if (icon != null) {
+        if (!logoUrl.isNullOrBlank()) {
+            val model = rememberCrossfadeImageModel(logoUrl)
+            AsyncImage(
+                model = model,
+                contentDescription = label,
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.size(16.dp),
+            )
+            Spacer(Modifier.width(6.dp))
+        } else if (icon != null) {
             Icon(
                 imageVector = icon,
                 contentDescription = null,
@@ -664,6 +683,67 @@ private fun SportsFilterButton(
         }
         Text(label, fontSize = 12.sp, fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium, maxLines = 1)
     }
+}
+
+@Composable
+private fun SportsTeamShield(
+    name: String,
+    logoUrl: String?,
+    modifier: Modifier = Modifier,
+    size: Dp = 40.dp,
+) {
+    val secureUrl = remember(logoUrl) {
+        logoUrl?.let {
+            if (it.startsWith("http://", ignoreCase = true)) "https://${it.substring(7)}"
+            else if (it.startsWith("//")) "https:$it"
+            else it
+        }?.takeIf { it.startsWith("https://", ignoreCase = true) }
+    }
+    val model = rememberCrossfadeImageModel(secureUrl)
+    var showFallback by remember(model) { mutableStateOf(model == null) }
+
+    Box(
+        modifier = modifier.size(size),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (!showFallback && model != null) {
+            AsyncImage(
+                model = model,
+                contentDescription = name,
+                contentScale = ContentScale.Fit,
+                onLoading = { showFallback = false },
+                onError = { showFallback = true },
+                onSuccess = { showFallback = false },
+                modifier = Modifier.fillMaxSize().padding(1.dp),
+            )
+        } else {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(BrowseColors.SurfaceEmphasis.copy(alpha = 0.8f))
+                    .border(1.dp, BrowseColors.Outline, RoundedCornerShape(8.dp)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = teamInitials(name),
+                    fontSize = (size.value * 0.32f).coerceAtLeast(10f).sp,
+                    fontWeight = FontWeight.Bold,
+                    color = BrowseColors.BrandStrong,
+                )
+            }
+        }
+    }
+}
+
+private fun teamInitials(name: String): String {
+    val words = name.trim().split(Regex("\\s+")).filter { it.isNotBlank() }
+    val initials = when {
+        words.size >= 2 -> "${words[0].first()}${words[1].first()}"
+        words.size == 1 -> words[0].take(2)
+        else -> "--"
+    }
+    return initials.uppercase(Locale.ROOT)
 }
 
 @Composable
@@ -702,16 +782,27 @@ private fun FeaturedSportsEvent(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            val leagueBadgeUrl = SportsLeagueBadgeRegistry.badgeUrl(event.league ?: "")
+                ?: SportsLeagueBadgeRegistry.badgeUrl(leagueLabel)
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Icon(
-                    imageVector = event.sport.icon(),
-                    contentDescription = null,
-                    modifier = Modifier.size(16.dp),
-                    tint = BrowseColors.Brand,
-                )
+                if (!leagueBadgeUrl.isNullOrBlank()) {
+                    AsyncImage(
+                        model = rememberCrossfadeImageModel(leagueBadgeUrl),
+                        contentDescription = leagueLabel,
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier.size(20.dp),
+                    )
+                } else {
+                    Icon(
+                        imageVector = event.sport.icon(),
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp),
+                        tint = BrowseColors.Brand,
+                    )
+                }
                 Text(
                     text = leagueLabel,
                     fontSize = 12.sp,
@@ -785,15 +876,13 @@ private fun FeaturedSportsEvent(
                         // Team 1
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
                             modifier = Modifier.weight(1f),
                         ) {
-                            ChannelLogoBadge(
-                                channelName = team1.displayName,
+                            SportsTeamShield(
+                                name = team1.displayName,
                                 logoUrl = team1.logoUrl,
-                                modifier = Modifier.size(46.dp),
-                                shape = CircleShape,
-                                backgroundColor = BrowseColors.Brand.copy(alpha = 0.15f),
+                                size = 52.dp,
                             )
                             Text(
                                 text = team1.displayName,
@@ -807,28 +896,53 @@ private fun FeaturedSportsEvent(
                                 Spacer(Modifier.width(6.dp))
                                 Text(
                                     text = score1,
-                                    fontSize = 20.sp,
+                                    fontSize = 22.sp,
                                     fontWeight = FontWeight.ExtraBold,
                                     color = BrowseColors.BrandStrong,
                                 )
                             }
                         }
-                        // VS badge
-                        Box(
-                            modifier = Modifier
-                                .padding(horizontal = 10.dp)
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(BrowseColors.Surface)
-                                .border(1.dp, BrowseColors.Outline, RoundedCornerShape(6.dp))
-                                .padding(horizontal = 8.dp, vertical = 3.dp),
-                            contentAlignment = Alignment.Center,
+                        // VS badge / Live score & clock
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier.padding(horizontal = 10.dp),
                         ) {
-                            Text(
-                                text = "VS",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = BrowseColors.TextSecondary,
-                            )
+                            if (score1 != null && score2 != null) {
+                                Text(
+                                    text = "$score1 - $score2",
+                                    fontSize = 22.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = if (isLive) BrowseColors.Live else BrowseColors.BrandStrong,
+                                )
+                                sourcedStatus?.value?.let { status ->
+                                    val clock = listOfNotNull(status.clock, status.period)
+                                        .map(String::trim).filter(String::isNotEmpty).joinToString(" ")
+                                    if (clock.isNotEmpty()) {
+                                        Text(
+                                            text = clock,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (isLive) BrowseColors.Live else BrowseColors.TextSecondary,
+                                        )
+                                    }
+                                }
+                            } else {
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(BrowseColors.Surface)
+                                        .border(1.dp, BrowseColors.Outline, RoundedCornerShape(6.dp))
+                                        .padding(horizontal = 10.dp, vertical = 4.dp),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Text(
+                                        text = "VS",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = BrowseColors.TextSecondary,
+                                    )
+                                }
+                            }
                         }
                         // Team 2
                         Row(
@@ -839,7 +953,7 @@ private fun FeaturedSportsEvent(
                             if (score2 != null) {
                                 Text(
                                     text = score2,
-                                    fontSize = 20.sp,
+                                    fontSize = 22.sp,
                                     fontWeight = FontWeight.ExtraBold,
                                     color = BrowseColors.BrandStrong,
                                 )
@@ -853,13 +967,11 @@ private fun FeaturedSportsEvent(
                                 maxLines = 2,
                                 overflow = TextOverflow.Ellipsis,
                             )
-                            Spacer(Modifier.width(10.dp))
-                            ChannelLogoBadge(
-                                channelName = team2.displayName,
+                            Spacer(Modifier.width(12.dp))
+                            SportsTeamShield(
+                                name = team2.displayName,
                                 logoUrl = team2.logoUrl,
-                                modifier = Modifier.size(46.dp),
-                                shape = CircleShape,
-                                backgroundColor = BrowseColors.Brand.copy(alpha = 0.15f),
+                                size = 52.dp,
                             )
                         }
                     }
@@ -1089,12 +1201,10 @@ private fun SportsFixture(event: SportsEvent, featured: Boolean, modifier: Modif
         if (event.competitors.size == 2) {
             event.competitors.forEach { competitor ->
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    ChannelLogoBadge(
-                        channelName = competitor.displayName,
+                    SportsTeamShield(
+                        name = competitor.displayName,
                         logoUrl = competitor.logoUrl,
-                        modifier = Modifier.size(if (featured) 32.dp else 26.dp),
-                        shape = CircleShape,
-                        backgroundColor = BrowseColors.Brand.copy(alpha = 0.14f),
+                        size = if (featured) 32.dp else 26.dp,
                     )
                     Text(competitor.displayName, fontSize = if (featured) 18.sp else 14.sp,
                         modifier = Modifier.weight(1f),
@@ -1156,20 +1266,35 @@ private fun SportsEventCard(
             verticalArrangement = Arrangement.SpaceBetween,
         ) {
             // Card Top: League + Status Badge
+            val leagueBadgeUrl = SportsLeagueBadgeRegistry.badgeUrl(event.league ?: "")
+                ?: SportsLeagueBadgeRegistry.badgeUrl(leagueLabel)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(
-                    text = leagueLabel,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = BrowseColors.BrandStrong,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                     modifier = Modifier.weight(1f, fill = false),
-                )
+                ) {
+                    if (!leagueBadgeUrl.isNullOrBlank()) {
+                        AsyncImage(
+                            model = rememberCrossfadeImageModel(leagueBadgeUrl),
+                            contentDescription = leagueLabel,
+                            contentScale = ContentScale.Fit,
+                            modifier = Modifier.size(15.dp),
+                        )
+                    }
+                    Text(
+                        text = leagueLabel,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = BrowseColors.BrandStrong,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
                 if (isLive) {
                     LiveBadge()
                 } else if (event.isCompletedAt(System.currentTimeMillis())) {
@@ -1205,12 +1330,10 @@ private fun SportsEventCard(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         modifier = Modifier.weight(1f),
                     ) {
-                        ChannelLogoBadge(
-                            channelName = team1.displayName,
+                        SportsTeamShield(
+                            name = team1.displayName,
                             logoUrl = team1.logoUrl,
-                            modifier = Modifier.size(34.dp),
-                            shape = CircleShape,
-                            backgroundColor = BrowseColors.Surface,
+                            size = 38.dp,
                         )
                         Spacer(Modifier.height(4.dp))
                         Text(
@@ -1230,27 +1353,51 @@ private fun SportsEventCard(
                             )
                         }
                     }
-                    // VS
-                    Box(
-                        modifier = Modifier
-                            .padding(horizontal = 4.dp)
-                            .clip(RoundedCornerShape(4.dp))
-                            .background(BrowseColors.Surface)
-                            .padding(horizontal = 6.dp, vertical = 2.dp),
+                    // VS or live score & clock
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.padding(horizontal = 4.dp),
                     ) {
-                        Text("VS", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = BrowseColors.TextSecondary)
+                        if (score1 != null && score2 != null) {
+                            Text(
+                                text = "$score1 - $score2",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = if (isLive) BrowseColors.Live else BrowseColors.BrandStrong,
+                            )
+                            event.provenance.status?.value?.let { status ->
+                                val clockText = listOfNotNull(status.clock, status.period)
+                                    .map(String::trim).filter(String::isNotEmpty).joinToString(" ")
+                                if (clockText.isNotEmpty()) {
+                                    Text(
+                                        text = clockText,
+                                        fontSize = 9.sp,
+                                        color = if (isLive) BrowseColors.Live else BrowseColors.TextSecondary,
+                                        fontWeight = FontWeight.SemiBold,
+                                    )
+                                }
+                            }
+                        } else {
+                            Box(
+                                modifier = Modifier
+                                    .padding(horizontal = 4.dp)
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(BrowseColors.Surface)
+                                    .padding(horizontal = 6.dp, vertical = 2.dp),
+                            ) {
+                                Text("VS", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = BrowseColors.TextSecondary)
+                            }
+                        }
                     }
                     // Team 2
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         modifier = Modifier.weight(1f),
                     ) {
-                        ChannelLogoBadge(
-                            channelName = team2.displayName,
+                        SportsTeamShield(
+                            name = team2.displayName,
                             logoUrl = team2.logoUrl,
-                            modifier = Modifier.size(34.dp),
-                            shape = CircleShape,
-                            backgroundColor = BrowseColors.Surface,
+                            size = 38.dp,
                         )
                         Spacer(Modifier.height(4.dp))
                         Text(
@@ -1545,11 +1692,10 @@ private fun SportsExtraDetailsContent(details: LoadedSportsEventExtraDetails) {
     if (teamArtwork.isNotEmpty()) {
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             teamArtwork.forEach { item ->
-                ChannelLogoBadge(
-                    channelName = item.teamName,
+                SportsTeamShield(
+                    name = item.teamName,
                     logoUrl = item.artwork.uri.toString(),
-                    modifier = Modifier.size(46.dp),
-                    shape = CircleShape,
+                    size = 46.dp,
                 )
             }
         }
