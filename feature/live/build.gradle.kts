@@ -161,6 +161,9 @@ dependencies {
     implementation(project(":data"))
     implementation(project(":player"))
 
+    implementation(libs.coil.compose)
+    implementation(libs.coil.network.okhttp)
+
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)
     implementation(libs.compose.material3)

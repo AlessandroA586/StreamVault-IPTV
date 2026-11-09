@@ -720,14 +720,9 @@ internal class SportsHubRepository @Inject constructor(
             val competitors = if (providerEventValue != null && providerEventValue.competitors.isNotEmpty()) {
                 providerEventValue.competitors.map { comp ->
                     SportsCompetitor(
-                        name = comp.name,
+                        displayName = comp.name,
                         canonicalName = SportsAliasRegistry.normalizeTeamName(comp.name),
                         logoUrl = comp.logoUrl,
-                        role = when (comp.role) {
-                            com.streamvault.domain.sports.provider.ProviderCompetitorRole.HOME -> SportsCompetitorRole.HOME
-                            com.streamvault.domain.sports.provider.ProviderCompetitorRole.AWAY -> SportsCompetitorRole.AWAY
-                            else -> SportsCompetitorRole.UNKNOWN
-                        },
                     )
                 }
             } else {
@@ -779,14 +774,9 @@ internal class SportsHubRepository @Inject constructor(
             confidence = 0.85f,
             competitors = providerEvent.competitors.map { competitor ->
                 SportsCompetitor(
-                    name = competitor.name,
+                    displayName = competitor.name,
                     canonicalName = SportsAliasRegistry.normalizeTeamName(competitor.name),
                     logoUrl = competitor.logoUrl,
-                    role = when (competitor.role) {
-                        com.streamvault.domain.sports.provider.ProviderCompetitorRole.HOME -> SportsCompetitorRole.HOME
-                        com.streamvault.domain.sports.provider.ProviderCompetitorRole.AWAY -> SportsCompetitorRole.AWAY
-                        else -> SportsCompetitorRole.UNKNOWN
-                    },
                 )
             },
             session = providerEvent.session,
