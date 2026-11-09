@@ -10,7 +10,25 @@ enum class SportsCapability {
 }
 
 const val CUSTOM_SPORTS_PROVIDER_TYPE_ID = "custom-json"
+const val ESPN_SPORTS_PROVIDER_TYPE_ID = "espn"
+const val DEFAULT_ESPN_SPORTS_PROVIDER_INSTANCE_ID = "default-espn"
 const val CUSTOM_SPORTS_PROVIDER_MAX_CONFIGURATION_CHARS = 32 * 1024
+
+val DEFAULT_ESPN_SPORTS_PROVIDER_CONFIG = SportsProviderConfig(
+    instanceId = DEFAULT_ESPN_SPORTS_PROVIDER_INSTANCE_ID,
+    typeId = ESPN_SPORTS_PROVIDER_TYPE_ID,
+    enabled = true,
+    priority = 999,
+)
+
+fun resolveEffectiveSportsProviders(configs: List<SportsProviderConfig>): List<SportsProviderConfig> {
+    val userActiveConfigs = configs.filter { it.enabled && it.typeId != ESPN_SPORTS_PROVIDER_TYPE_ID }
+    return if (userActiveConfigs.isNotEmpty()) {
+        userActiveConfigs
+    } else {
+        listOf(DEFAULT_ESPN_SPORTS_PROVIDER_CONFIG)
+    }
+}
 
 /** Describes credential placement; secrets are stored separately from configuration. */
 sealed interface SportsProviderAuth {

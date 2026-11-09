@@ -6,6 +6,7 @@ import com.streamvault.domain.sports.provider.SportsProvider
 import com.streamvault.domain.sports.provider.SportsProviderAuth
 import com.streamvault.domain.sports.provider.SportsProviderConfig
 import com.streamvault.domain.sports.provider.CUSTOM_SPORTS_PROVIDER_TYPE_ID
+import com.streamvault.domain.sports.provider.ESPN_SPORTS_PROVIDER_TYPE_ID
 import com.streamvault.domain.sports.provider.SportsProviderConnectionTester
 import com.streamvault.domain.sports.provider.SportsProviderCredentials
 import com.streamvault.domain.sports.provider.SportsProviderDescriptor
@@ -69,7 +70,7 @@ internal class SportsProviderSettingsViewModel @Inject constructor(
 ) : ViewModel() {
     private var draftTestGeneration = 0L
     private val mutableState = MutableStateFlow(
-        SportsProviderSettingsUiState(descriptors = registry.descriptors),
+        SportsProviderSettingsUiState(descriptors = registry.descriptors.filter { it.typeId != ESPN_SPORTS_PROVIDER_TYPE_ID }),
     )
     val state = mutableState.asStateFlow()
 
@@ -81,7 +82,7 @@ internal class SportsProviderSettingsViewModel @Inject constructor(
         viewModelScope.launch {
             mutableState.update { it.copy(isLoading = true, loadFailed = false) }
             try {
-                val configurations = store.configurations()
+                val configurations = store.configurations().filter { it.typeId != ESPN_SPORTS_PROVIDER_TYPE_ID }
                 val credentialedInstanceIds = store.credentialedInstanceIds()
                 val usageSnapshots = buildMap {
                     configurations.forEach { config ->
@@ -98,7 +99,7 @@ internal class SportsProviderSettingsViewModel @Inject constructor(
                         loadFailed = false,
                         configurations = configurations,
                         usageSnapshots = usageSnapshots,
-                        descriptors = registry.descriptors,
+                        descriptors = registry.descriptors.filter { it.typeId != ESPN_SPORTS_PROVIDER_TYPE_ID },
                         credentialedInstanceIds = credentialedInstanceIds,
                         eventSourcePreference = eventSourcePreference,
                         scoreSourcePreference = scoreSourcePreference,

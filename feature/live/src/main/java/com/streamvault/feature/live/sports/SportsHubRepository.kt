@@ -26,6 +26,8 @@ import com.streamvault.domain.sports.provider.SportsStandingsSourcePreference
 import com.streamvault.domain.sports.provider.SportsMetadataSourceSettings
 import com.streamvault.domain.sports.provider.SportsMetadataSourcePreference
 import com.streamvault.domain.sports.provider.SportsProviderStore
+import com.streamvault.domain.sports.provider.resolveEffectiveSportsProviders
+import com.streamvault.domain.sports.provider.DEFAULT_ESPN_SPORTS_PROVIDER_CONFIG
 import com.streamvault.domain.sports.provider.SportsProviderConfig
 import com.streamvault.domain.sports.provider.SportsSourceRef
 import javax.inject.Inject
@@ -378,7 +380,9 @@ internal class SportsHubRepository @Inject constructor(
         lastRequestedLocalDate = localDate(now)
         _uiState.update { it.copy(isLoading = it.isLoading || it.hasError, hasError = false) }
         try {
-            val configuredProviders = runCatching { sportsProviderStore.configurations() }.getOrDefault(emptyList())
+            val configuredProviders = runCatching {
+                resolveEffectiveSportsProviders(sportsProviderStore.configurations())
+            }.getOrDefault(listOf(DEFAULT_ESPN_SPORTS_PROVIDER_CONFIG))
             val eventProviders = sportsProviderEventSourceRouter.eligibleProviders(
                 configuredProviders,
                 inputs.eventSourcePreference,
@@ -666,7 +670,9 @@ internal class SportsHubRepository @Inject constructor(
 
     suspend fun loadStandings(event: SportsEvent): LoadedSportsStandings? {
         val preference = sportsStandingsSourceSettings.standingsSourcePreference.first()
-        val configs = runCatching { sportsProviderStore.configurations() }.getOrDefault(emptyList())
+        val configs = runCatching {
+            resolveEffectiveSportsProviders(sportsProviderStore.configurations())
+        }.getOrDefault(listOf(DEFAULT_ESPN_SPORTS_PROVIDER_CONFIG))
         val sourcedLeague = event.provenance.league
         val providerSource = sourcedLeague?.source as? SportsSourceRef.Provider
         val league = sourcedLeague?.value ?: event.league?.let(::ProviderLeague)

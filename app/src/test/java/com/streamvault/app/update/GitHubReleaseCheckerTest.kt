@@ -8,6 +8,7 @@ import okhttp3.Response
 import okhttp3.ResponseBody
 import org.junit.Test
 import org.mockito.kotlin.any
+import org.mockito.kotlin.argThat
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.whenever
 
@@ -41,6 +42,36 @@ class GitHubReleaseCheckerTest {
 
         assertThat(result).isInstanceOf(com.streamvault.domain.model.Result.Error::class.java)
         assertThat((result as com.streamvault.domain.model.Result.Error).message).contains("429")
+    }
+
+    @Test
+    fun `http 403 falls back to web redirect when available`() = kotlinx.coroutines.test.runTest {
+        val client = mock<OkHttpClient>()
+        val apiCall = mock<Call>()
+        val apiResponse = mock<Response>()
+        val webCall = mock<Call>()
+        val webResponse = mock<Response>()
+        val webRequest = okhttp3.Request.Builder()
+            .url("https://github.com/AlessandroA586/StreamVault-IPTV/releases/tag/v1.2.4")
+            .build()
+
+        whenever(apiResponse.isSuccessful).thenReturn(false)
+        whenever(apiResponse.code).thenReturn(403)
+        whenever(apiCall.execute()).thenReturn(apiResponse)
+
+        whenever(webResponse.isSuccessful).thenReturn(true)
+        whenever(webResponse.request).thenReturn(webRequest)
+        whenever(webCall.execute()).thenReturn(webResponse)
+
+        whenever(client.newCall(argThat { url.host == "api.github.com" })).thenReturn(apiCall)
+        whenever(client.newCall(argThat { url.host == "github.com" })).thenReturn(webCall)
+
+        val result = GitHubReleaseChecker(client).fetchLatestRelease()
+
+        assertThat(result).isInstanceOf(com.streamvault.domain.model.Result.Success::class.java)
+        val data = (result as com.streamvault.domain.model.Result.Success).data
+        assertThat(data.versionName).isEqualTo("1.2.4")
+        assertThat(data.downloadUrl).contains("StreamVault.apk")
     }
 
     @Test

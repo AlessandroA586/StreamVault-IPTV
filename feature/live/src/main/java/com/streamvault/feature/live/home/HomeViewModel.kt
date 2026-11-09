@@ -824,14 +824,22 @@ class HomeViewModel @Inject constructor(
                     queryFlow.flatMapLatest { query ->
                         val trimmedQuery = query.trim()
                         if (trimmedQuery.isBlank()) {
-                            _channelBrowseLimit.flatMapLatest { limit ->
-                                channelRepository.getChannelsByCategoryPage(providerId, category.id, limit)
+                            if (category.id == ChannelRepository.ALL_CHANNELS_ID) {
+                                _channelBrowseLimit.flatMapLatest { limit ->
+                                    channelRepository.getChannelsByCategoryPage(providerId, category.id, limit)
+                                }
+                            } else {
+                                channelRepository.getChannelsByCategory(providerId, category.id)
                             }
                         } else if (trimmedQuery.length < MIN_CHANNEL_SEARCH_QUERY_LENGTH) {
                             flowOf(emptyList())
                         } else {
-                            _channelSearchLimit.flatMapLatest { limit ->
-                                channelRepository.searchChannelsByCategoryPaged(providerId, category.id, trimmedQuery, limit)
+                            if (category.id == ChannelRepository.ALL_CHANNELS_ID) {
+                                _channelSearchLimit.flatMapLatest { limit ->
+                                    channelRepository.searchChannelsByCategoryPaged(providerId, category.id, trimmedQuery, limit)
+                                }
+                            } else {
+                                channelRepository.searchChannelsByCategory(providerId, category.id, trimmedQuery)
                             }
                         }
                     }
@@ -873,7 +881,11 @@ class HomeViewModel @Inject constructor(
                             hasChannels = displayedChannels.isNotEmpty(),
                             isLoading = displayedChannels.isEmpty() && it.isSyncing,
                             errorMessage = null,
-                            hasMoreChannels = displayedChannels.size >= currentLimit
+                            hasMoreChannels = if (category.id == ChannelRepository.ALL_CHANNELS_ID) {
+                                displayedChannels.size >= currentLimit
+                            } else {
+                                false
+                            }
                         )
                     }
                 }

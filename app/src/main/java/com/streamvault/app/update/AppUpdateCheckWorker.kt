@@ -45,6 +45,11 @@ class AppUpdateCheckWorker(
             return Result.success()
         }
 
+        if (runAttemptCount >= 2) {
+            // Avoid burning GitHub API unauthenticated rate limits on repeated background retries
+            return Result.success()
+        }
+
         preferences.setLastAppUpdateAttemptTimestamp(now)
         preferences.setLastAppUpdateOutcome("ATTEMPTED")
         return when (val result = entry.gitHubReleaseChecker().fetchLatestRelease()) {
@@ -66,7 +71,11 @@ class AppUpdateCheckWorker(
             is DomainResult.Error -> {
                 preferences.setLastAppUpdateFailureTimestamp(now)
                 preferences.setLastAppUpdateOutcome("FAILURE: ${result.message}")
-                Result.retry()
+                if (result.message.contains("403") || result.message.contains("429")) {
+                    Result.success()
+                } else {
+                    Result.retry()
+                }
             }
             DomainResult.Loading -> Result.retry()
         }

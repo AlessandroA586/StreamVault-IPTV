@@ -12,6 +12,7 @@ import com.streamvault.domain.sports.provider.SportsCapability
 import com.streamvault.domain.sports.provider.SportsProviderRegistry
 import com.streamvault.domain.sports.provider.SportsProviderResult
 import com.streamvault.domain.sports.provider.SportsProviderStore
+import com.streamvault.domain.sports.provider.resolveEffectiveSportsProviders
 import com.streamvault.domain.sports.provider.SportsSourceRef
 import com.streamvault.domain.sports.provider.ArtworkProvider
 import com.streamvault.domain.sports.provider.LineupProvider
@@ -43,7 +44,7 @@ internal class SportsProviderExtraDetailsRouter @Inject constructor(
         val sources = event.provenance.sources.filterIsInstance<SportsSourceRef.Provider>()
         if (sources.isEmpty()) return null
         val configs = try {
-            store.configurations()
+            resolveEffectiveSportsProviders(store.configurations())
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Exception) {

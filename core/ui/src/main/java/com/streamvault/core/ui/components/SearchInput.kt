@@ -7,11 +7,14 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
@@ -29,6 +32,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.foundation.focusable
@@ -39,6 +43,7 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
@@ -166,6 +171,7 @@ fun SearchInput(
     val borderColor = if (isFocused) palette.focus else if (modern) palette.outline else OnSurfaceDim.copy(alpha = 0.5f)
     val backgroundColor = if (isFocused) palette.surfaceEmphasis else palette.surfaceElevated
     val borderWidth = if (isFocused) 2.dp else 1.dp
+    val clearFocusRequester = remember { FocusRequester() }
 
     Box(
         modifier = modifier
@@ -175,28 +181,44 @@ fun SearchInput(
             .bringIntoViewRequester(bringIntoViewRequester)
             .background(backgroundColor, searchShape)
             .border(borderWidth, borderColor, searchShape)
-            .semantics(mergeDescendants = true) {
-                contentDescription = placeholder
-                stateDescription = value.ifBlank { placeholder }
-            }
             .onFocusChanged {
                 hasContainerFocus = enabled && it.isFocused
             }
             .focusProperties {
-                canFocus = enabled
+                canFocus = enabled && !acceptsInput
             }
-            .mouseClickable(enabled = enabled, focusRequester = focusRequester) {
-                activateInput()
+            .onPreviewKeyEvent { event ->
+                if (!isTelevisionDevice || acceptsInput || event.nativeKeyEvent.action != android.view.KeyEvent.ACTION_DOWN) {
+                    false
+                } else if (event.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_DPAD_CENTER ||
+                    event.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_ENTER
+                ) {
+                    activateInput()
+                    true
+                } else {
+                    false
+                }
             }
-            .clickable(enabled = enabled) {
-                activateInput()
-            }
-            .focusable(enabled = enabled)
-            .padding(horizontal = 12.dp),
+            .focusable(enabled = enabled && !acceptsInput)
+            .padding(start = 12.dp, end = 4.dp),
         contentAlignment = Alignment.CenterStart
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(modifier = Modifier.weight(1f)) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .heightIn(min = 44.dp)
+                    .mouseClickable(enabled = enabled, focusRequester = focusRequester) {
+                        activateInput()
+                    }
+                    .clickable(enabled = enabled) {
+                        activateInput()
+                    },
+                contentAlignment = Alignment.CenterStart
+            ) {
                 if (value.isEmpty() && !isFocused) {
                     Text(
                         text = placeholder,
@@ -220,7 +242,7 @@ fun SearchInput(
                             canFocus = enabled && acceptsInput
                             if (isTelevisionDevice && acceptsInput) {
                                 left = FocusRequester.Cancel
-                                right = FocusRequester.Cancel
+                                right = if (value.isNotBlank()) clearFocusRequester else FocusRequester.Cancel
                             }
                         }
                         .onFocusChanged {
@@ -244,9 +266,14 @@ fun SearchInput(
                                     true
                                 }
                                 android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> {
-                                    val nextCursor = (cursor + 1).coerceAtMost(textFieldValue.text.length)
-                                    textFieldValue = textFieldValue.copy(selection = TextRange(nextCursor))
-                                    true
+                                    if (cursor >= textFieldValue.text.length && value.isNotBlank()) {
+                                        clearFocusRequester.requestFocus()
+                                        true
+                                    } else {
+                                        val nextCursor = (cursor + 1).coerceAtMost(textFieldValue.text.length)
+                                        textFieldValue = textFieldValue.copy(selection = TextRange(nextCursor))
+                                        true
+                                    }
                                 }
                                 else -> false
                             }
@@ -271,22 +298,48 @@ fun SearchInput(
                 )
             }
 
-            Icon(
-                imageVector = if (value.isBlank()) Icons.Default.Search else Icons.Default.Close,
-                contentDescription = null,
-                tint = if (value.isBlank()) {
-                    if (isFocused) Primary else OnSurfaceDim
-                } else {
-                    OnSurface
-                },
-                modifier = Modifier
-                    .padding(start = 6.dp)
-                    .clickable(enabled = enabled && value.isNotBlank()) {
-                        textFieldValue = TextFieldValue(text = "", selection = TextRange(0))
-                        onValueChange("")
-                        activateInput()
-                    }
-            )
+            if (value.isNotBlank()) {
+                Box(
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(CircleShape)
+                        .focusRequester(clearFocusRequester)
+                        .focusProperties {
+                            left = inputFocusRequester
+                        }
+                        .focusable(enabled = enabled)
+                        .mouseClickable(enabled = enabled) {
+                            textFieldValue = TextFieldValue(text = "", selection = TextRange(0))
+                            onValueChange("")
+                        }
+                        .clickable(
+                            enabled = enabled,
+                            role = Role.Button,
+                            onClick = {
+                                textFieldValue = TextFieldValue(text = "", selection = TextRange(0))
+                                onValueChange("")
+                            }
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Limpiar búsqueda",
+                        tint = OnSurface
+                    )
+                }
+            } else {
+                Box(
+                    modifier = Modifier.size(44.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Search,
+                        contentDescription = null,
+                        tint = if (isFocused) Primary else OnSurfaceDim
+                    )
+                }
+            }
         }
     }
 }

@@ -50,7 +50,7 @@ class EspnSportsProviderFactory @Inject constructor(
     )
 
     companion object {
-        const val TYPE_ID = "espn"
+        const val TYPE_ID = ESPN_SPORTS_PROVIDER_TYPE_ID
         const val BASE_URL = "https://site.api.espn.com/apis/site/v2/sports"
         const val NUVIO_DATA_MIRROR = "https://raw.githubusercontent.com/homelessbrian/nuvio-data/main"
         const val WRESTLING_ENDPOINT = "https://raw.githubusercontent.com/homelessbrian/nuvio-data/main/wrestling.json"

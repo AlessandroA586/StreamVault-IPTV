@@ -16,6 +16,7 @@ import javax.inject.Singleton
 
 private const val GITHUB_RELEASES_LATEST_URL = "https://api.github.com/repos/AlessandroA586/StreamVault-IPTV/releases/latest"
 private const val GITHUB_RELEASES_LIST_URL = "https://api.github.com/repos/AlessandroA586/StreamVault-IPTV/releases?per_page=20"
+private const val GITHUB_RELEASES_WEB_LATEST_URL = "https://github.com/AlessandroA586/StreamVault-IPTV/releases/latest"
 
 data class GitHubReleaseInfo(
     val versionName: String,
@@ -37,8 +38,8 @@ class GitHubReleaseChecker @Inject constructor(
     }
 
     suspend fun fetchLatestRelease(): Result<GitHubReleaseInfo> = withContext(Dispatchers.IO) {
+        val updateChannel = AppUpdateChannel.fromCurrentBuild()
         try {
-            val updateChannel = AppUpdateChannel.fromCurrentBuild()
             val request = Request.Builder()
                 .url(updateChannel.releaseApiUrl)
                 .header("Accept", "application/vnd.github+json")
@@ -47,6 +48,12 @@ class GitHubReleaseChecker @Inject constructor(
 
             okHttpClient.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
+                    if ((response.code == 403 || response.code == 429) && updateChannel == AppUpdateChannel.Stable) {
+                        val fallback = fetchLatestReleaseViaWebRedirect()
+                        if (fallback is Result.Success) {
+                            return@withContext fallback
+                        }
+                    }
                     return@withContext Result.error("Update check failed: HTTP ${response.code}")
                 }
 
@@ -94,10 +101,70 @@ class GitHubReleaseChecker @Inject constructor(
                 )
             }
         } catch (error: IOException) {
+            if (updateChannel == AppUpdateChannel.Stable) {
+                val fallback = fetchLatestReleaseViaWebRedirect()
+                if (fallback is Result.Success) {
+                    return@withContext fallback
+                }
+            }
             Result.error("Update check failed: network error", error)
         } catch (error: Exception) {
             Result.error("Update check failed: ${error.message}", error)
         }
+    }
+
+    private fun fetchLatestReleaseViaWebRedirect(): Result<GitHubReleaseInfo> {
+        return try {
+            val request = Request.Builder()
+                .url(GITHUB_RELEASES_WEB_LATEST_URL)
+                .header("User-Agent", "StreamVault-Update-Checker")
+                .build()
+
+            okHttpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    return Result.error("Update check fallback failed: HTTP ${response.code}")
+                }
+
+                val finalUrl = try { response.request?.url?.toString().orEmpty() } catch (_: Throwable) { "" }
+                val tag = extractTagFromReleaseUrl(finalUrl)
+                    ?: response.priorResponse?.header("Location")?.let(::extractTagFromReleaseUrl)
+                    ?: response.header("Location")?.let(::extractTagFromReleaseUrl)
+
+                if (tag.isNullOrBlank()) {
+                    return Result.error("Update check fallback failed: latest release tag is missing")
+                }
+
+                val parsedTag = parseTagVersionInfo(tag)
+                if (parsedTag.versionName.isBlank()) {
+                    return Result.error("Update check fallback failed: latest release tag is missing")
+                }
+
+                val releaseUrl = "https://github.com/AlessandroA586/StreamVault-IPTV/releases/tag/$tag"
+                val downloadUrl = "https://github.com/AlessandroA586/StreamVault-IPTV/releases/download/$tag/StreamVault.apk"
+
+                Result.success(
+                    GitHubReleaseInfo(
+                        versionName = parsedTag.versionName,
+                        versionCode = parsedTag.versionCode,
+                        releaseUrl = releaseUrl,
+                        downloadUrl = downloadUrl,
+                        downloadSha256 = null,
+                        releaseNotes = "",
+                        publishedAt = null
+                    )
+                )
+            }
+        } catch (error: Exception) {
+            Result.error("Update check fallback failed: ${error.message}", error)
+        }
+    }
+
+    private fun extractTagFromReleaseUrl(url: String): String? {
+        val marker = "/releases/tag/"
+        val index = url.indexOf(marker)
+        if (index == -1) return null
+        val afterMarker = url.substring(index + marker.length)
+        return afterMarker.substringBefore('/').substringBefore('?').takeIf { it.isNotBlank() }
     }
 
     private fun selectReleaseJson(body: String, updateChannel: AppUpdateChannel): JSONObject? {
@@ -188,7 +255,6 @@ class GitHubReleaseChecker @Inject constructor(
         }
         return fallback
     }
-
 
     private fun parseTagVersionInfo(rawTagName: String): ParsedTagVersion {
         val normalizedTag = rawTagName.trim()

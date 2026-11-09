@@ -1,6 +1,17 @@
-﻿# Changelog
+# Changelog
 
 All notable product changes are recorded in this document.
+
+## [1.2.5]
+
+### Added
+- Zero-config sports data provider feed (ESPN & Nuvio data mirror) activated automatically by default without requiring API keys or manual setup.
+- Seamless fallback for sports data: user-configured providers override the default system when enabled, while the zero-config feed serves as an automatic baseline.
+
+### Fixed
+- Fixed search bars 'X' (clear) button not responding to mouse clicks, touch, or D-pad navigation.
+- Fixed category channel browsing truncating channels beyond the first 200 items, now displaying all channels cleanly for selected categories.
+- Fixed in-app updater check failing with HTTP 403 when GitHub API unauthenticated hourly rate limits are exhausted, adding an automatic web redirect fallback.
 
 ## [1.2.4]
 
