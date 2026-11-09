@@ -72,12 +72,12 @@ fun LiveChannelListHost(
             }
     }
 
-    LaunchedEffect(channelListState) {
+    LaunchedEffect(channelListState, hasMoreChannels) {
         snapshotFlow {
             val info = channelListState.layoutInfo
             val lastVisible = info.visibleItemsInfo.lastOrNull()?.index ?: -1
             val total = info.totalItemsCount
-            hasMoreChannels && total > 0 && lastVisible >= total - 5
+            hasMoreChannels && total > 0 && lastVisible >= total - 15
         }
             .distinctUntilChanged()
             .filter { it }

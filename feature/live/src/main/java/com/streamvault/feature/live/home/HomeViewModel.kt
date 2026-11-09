@@ -100,6 +100,7 @@ class HomeViewModel @Inject constructor(
     private companion object {
         const val MIN_CHANNEL_SEARCH_QUERY_LENGTH = 2
         const val CHANNEL_PAGE_SIZE = 200
+        const val CATEGORY_CHANNEL_PAGE_SIZE = 1000
         const val CHANNEL_SEARCH_PAGE_SIZE = 300
         const val LOAD_MORE_THRESHOLD = 5
         const val ADAPTIVE_PREVIEW_REPRIME_DELAY_MS = 2_500L
@@ -731,7 +732,11 @@ class HomeViewModel @Inject constructor(
 
     private fun loadChannelsForCategory(category: Category) {
         loadChannelsJob?.cancel()
-        _channelBrowseLimit.value = CHANNEL_PAGE_SIZE
+        _channelBrowseLimit.value = if (category.id == ChannelRepository.ALL_CHANNELS_ID) {
+            CHANNEL_PAGE_SIZE
+        } else {
+            CATEGORY_CHANNEL_PAGE_SIZE
+        }
         _channelSearchLimit.value = CHANNEL_SEARCH_PAGE_SIZE
         loadChannelsJob = viewModelScope.launch {
             try {
@@ -824,22 +829,14 @@ class HomeViewModel @Inject constructor(
                     queryFlow.flatMapLatest { query ->
                         val trimmedQuery = query.trim()
                         if (trimmedQuery.isBlank()) {
-                            if (category.id == ChannelRepository.ALL_CHANNELS_ID) {
-                                _channelBrowseLimit.flatMapLatest { limit ->
-                                    channelRepository.getChannelsByCategoryPage(providerId, category.id, limit)
-                                }
-                            } else {
-                                channelRepository.getChannelsByCategory(providerId, category.id)
+                            _channelBrowseLimit.flatMapLatest { limit ->
+                                channelRepository.getChannelsByCategoryPage(providerId, category.id, limit)
                             }
                         } else if (trimmedQuery.length < MIN_CHANNEL_SEARCH_QUERY_LENGTH) {
                             flowOf(emptyList())
                         } else {
-                            if (category.id == ChannelRepository.ALL_CHANNELS_ID) {
-                                _channelSearchLimit.flatMapLatest { limit ->
-                                    channelRepository.searchChannelsByCategoryPaged(providerId, category.id, trimmedQuery, limit)
-                                }
-                            } else {
-                                channelRepository.searchChannelsByCategory(providerId, category.id, trimmedQuery)
+                            _channelSearchLimit.flatMapLatest { limit ->
+                                channelRepository.searchChannelsByCategoryPaged(providerId, category.id, trimmedQuery, limit)
                             }
                         }
                     }
@@ -881,11 +878,7 @@ class HomeViewModel @Inject constructor(
                             hasChannels = displayedChannels.isNotEmpty(),
                             isLoading = displayedChannels.isEmpty() && it.isSyncing,
                             errorMessage = null,
-                            hasMoreChannels = if (category.id == ChannelRepository.ALL_CHANNELS_ID) {
-                                displayedChannels.size >= currentLimit
-                            } else {
-                                false
-                            }
+                            hasMoreChannels = displayedChannels.size >= currentLimit
                         )
                     }
                 }
@@ -1020,8 +1013,13 @@ class HomeViewModel @Inject constructor(
 
     fun loadMoreChannels() {
         val currentQuery = _uiState.value.channelSearchQuery.trim()
+        val pageSize = if (_uiState.value.selectedCategory?.id == ChannelRepository.ALL_CHANNELS_ID) {
+            CHANNEL_PAGE_SIZE
+        } else {
+            CATEGORY_CHANNEL_PAGE_SIZE
+        }
         if (currentQuery.length < MIN_CHANNEL_SEARCH_QUERY_LENGTH) {
-            _channelBrowseLimit.update { it + CHANNEL_PAGE_SIZE }
+            _channelBrowseLimit.update { it + pageSize }
         } else {
             _channelSearchLimit.update { it + CHANNEL_SEARCH_PAGE_SIZE }
         }
