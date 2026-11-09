@@ -560,7 +560,17 @@ public fun LazyListScope.settingsAboutSection(
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             SettingsRow(label = stringResource(R.string.settings_build), value = stringResource(R.string.settings_build_desc))
             SettingsRow(label = stringResource(R.string.settings_build_verification), value = buildVerificationLabel)
+            SettingsRow(
+                label = stringResource(R.string.settings_derivative_notice),
+                value = stringResource(R.string.settings_derivative_notice_value),
+            )
             SettingsRow(label = stringResource(R.string.settings_developed_by), value = stringResource(R.string.settings_developer_name))
+            ClickableSettingsRow(
+                label = stringResource(R.string.settings_original_github),
+                value = stringResource(R.string.settings_original_github_url),
+                onClick = { onOpenUri(context.getString(R.string.settings_original_github_url)) },
+                modifier = if (targetItemId == "about.original_github") targetFocusModifier else Modifier,
+            )
             ClickableSettingsRow(
                 label = stringResource(R.string.settings_github),
                 value = stringResource(R.string.settings_github_url),

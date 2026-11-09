@@ -98,6 +98,15 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.RadioButtonChecked
+import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.Tune
+import androidx.compose.foundation.BorderStroke
+import androidx.tv.material3.Border
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.material3.CircularProgressIndicator
 import kotlinx.coroutines.launch
 
@@ -185,32 +194,38 @@ internal fun SportsHubContent(
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         item(key = "sports-header") {
-            AdaptiveRow(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(20.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Text(stringResource(R.string.nav_sports), fontSize = 22.sp,
-                    fontWeight = FontWeight.Bold, color = BrowseColors.TextPrimary)
-                if (!isPortraitLayout()) Spacer(Modifier.weight(1f))
-                SportsTimeRangeFilters(state.selectedTimeRange, onSelectTimeRange)
-            }
+            SportsHubHeader()
         }
         item(key = "sports-filters") {
             Column(
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier
+                    .fillMaxWidth()
                     .clip(BrowseShapes.Panel)
                     .background(BrowseColors.Surface.copy(alpha = 0.65f))
                     .border(1.dp, BrowseColors.Outline, BrowseShapes.Panel)
-                    .padding(10.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
+                    .padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                SportsDiscoverySearch(state.searchQuery, onSearchQueryChanged, onOpenInclusions = { inclusionsOpen = true }) {
-                    SportsSportFilters(state.selectedSportFilter, onSelectSportFilter)
-                }
+                // Sport category selector pills with faithful icons, respecting exclusions
+                SportsSportFilters(state.selectedSportFilter, state.excludedSports, onSelectSportFilter)
+
+                // League selector pills if available, respecting exclusions
                 if (availableLeagues.isNotEmpty()) {
                     SportsLeagueFilters(availableLeagues, state.selectedLeagueFilter, onSelectLeagueFilter)
                 }
+
+                // Time/Status row: ((•)) En vivo ahora | Próximos | Destacados | Finalizados | Configuración | Search
+                val liveCount = state.events.count { it.matchesDiscovery(state) && it.isLiveAt(state.nowMillis) }
+                val upcomingCount = state.events.count { it.matchesDiscovery(state) && it.startTime > state.nowMillis && !it.isCompletedAt(state.nowMillis) }
+                SportsStatusAndSearchRow(
+                    selectedTimeRange = state.selectedTimeRange,
+                    liveCount = liveCount,
+                    upcomingCount = upcomingCount,
+                    searchQuery = state.searchQuery,
+                    onSearchQueryChanged = onSearchQueryChanged,
+                    onOpenInclusions = { inclusionsOpen = true },
+                    onSelectTimeRange = onSelectTimeRange,
+                )
             }
         }
         when {
@@ -218,50 +233,129 @@ internal fun SportsHubContent(
             state.hasError -> item { SportsErrorState(onRetry) }
             visibleEvents.isEmpty() -> item { SportsEmptyState() }
             else -> {
-                val leagueGroups = visibleEvents.groupBy { event ->
-                    event.leagueFilterKey ?: event.categoryLabel?.let {
-                        "category:${SportsTextNormalizer.normalize(it)}"
-                    } ?: "category:sports"
-                }.map { (key, events) ->
-                    val label = events.firstNotNullOfOrNull { it.localizedLeagueName(localizedLeagueNames) }
-                        ?: events.firstNotNullOfOrNull { it.categoryLabel }
-                        ?: fallbackLeague
-                    Triple(key, label, events)
-                }.sortedWith(compareBy<Triple<String, String, List<SportsEvent>>> {
-                    it.third.none { event -> event.leagueInfo != null || event.league != null }
-                }.thenByDescending { it.third.size })
-                val leadEvents = leagueGroups.first().third
-                val featured = leadEvents.firstOrNull { it.competitors.size == 2 } ?: leadEvents.first()
-                item(key = "sports-featured") {
-                    FeaturedSportsEvent(
-                        event = featured,
-                        isLive = featured.isLiveAt(state.nowMillis),
-                        showDate = state.selectedTimeRange == SportsTimeRange.UPCOMING,
-                        onShowDetails = { detailsEvent = it },
-                        onPlayBroadcast = onPlayBroadcast,
-                    )
+                // Hero card selection: Live or Upcoming only, NEVER finished!
+                val eligibleForHero = visibleEvents.filter { !it.isCompletedAt(state.nowMillis) }
+                val featured = eligibleForHero.firstOrNull { it.isLiveAt(state.nowMillis) && it.competitors.size == 2 }
+                    ?: eligibleForHero.firstOrNull { it.isLiveAt(state.nowMillis) }
+                    ?: eligibleForHero.firstOrNull { it.competitors.size == 2 }
+                    ?: eligibleForHero.firstOrNull()
+
+                if (featured != null) {
+                    item(key = "sports-featured") {
+                        FeaturedSportsEvent(
+                            event = featured,
+                            isLive = featured.isLiveAt(state.nowMillis),
+                            showDate = state.selectedTimeRange == SportsTimeRange.UPCOMING,
+                            onShowDetails = { detailsEvent = it },
+                            onPlayBroadcast = onPlayBroadcast,
+                        )
+                    }
                 }
-                leagueGroups.forEach { (leagueKey, league, events) ->
-                    item(key = "league:$leagueKey") {
-                        val attributionLines = events.maxOf { event ->
-                            event.attributionCredits.sumOf { it.lineCount }
-                        }
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text(league, fontSize = 17.sp, fontWeight = FontWeight.SemiBold,
-                                color = BrowseColors.TextPrimary)
-                            LazyRow(
-                                modifier = Modifier.fillMaxWidth().focusGroup(),
-                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 8.dp),
-                                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            ) {
-                                items(events, key = SportsEvent::id) { event ->
-                                    SportsEventCard(
-                                        event = event,
-                                        isLive = event.isLiveAt(state.nowMillis),
-                                        showDate = state.selectedTimeRange == SportsTimeRange.UPCOMING,
-                                        attributionLines = attributionLines,
-                                        onShowDetails = { detailsEvent = it },
+
+                // Events below the hero (excluding the hero match to guarantee NO DUPLICATES)
+                val remainingEvents = visibleEvents.filter { it.id != featured?.id }
+
+                if (state.selectedTimeRange == SportsTimeRange.ON_NOW) {
+                    // LIVE TAB: Organized by sport categories! ALL active live events of all active sports appear!
+                    val liveSportGroups = remainingEvents
+                        .filter { it.isLiveAt(state.nowMillis) }
+                        .groupBy { it.sport }
+                        .entries
+                        .sortedBy { (sport, _) -> sport.ordinal }
+
+                    liveSportGroups.forEach { (sport, events) ->
+                        item(key = "live-sport:${sport.name}") {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    modifier = Modifier.padding(top = 10.dp),
+                                ) {
+                                    Icon(
+                                        imageVector = sport.icon(),
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp),
+                                        tint = BrowseColors.Brand,
                                     )
+                                    Text(
+                                        text = stringResource(sport.labelResource()) + " " + stringResource(R.string.live_sports_live_badge).lowercase(),
+                                        fontSize = 17.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = BrowseColors.TextPrimary,
+                                    )
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(CircleShape)
+                                            .background(BrowseColors.Brand.copy(alpha = 0.2f))
+                                            .padding(horizontal = 7.dp, vertical = 1.dp),
+                                    ) {
+                                        Text(
+                                            text = "${events.size}",
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = BrowseColors.BrandStrong,
+                                        )
+                                    }
+                                }
+                                LazyRow(
+                                    modifier = Modifier.fillMaxWidth().focusGroup(),
+                                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 6.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                ) {
+                                    items(events, key = SportsEvent::id) { event ->
+                                        SportsEventCard(
+                                            event = event,
+                                            isLive = true,
+                                            showDate = false,
+                                            attributionLines = 0,
+                                            onShowDetails = { detailsEvent = it },
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    // OTHER TABS (UPCOMING, FEATURED, COMPLETED):
+                    val leagueGroups = remainingEvents.groupBy { event ->
+                        event.leagueFilterKey ?: event.categoryLabel?.let {
+                            "category:${SportsTextNormalizer.normalize(it)}"
+                        } ?: "category:sports"
+                    }.map { (key, events) ->
+                        val label = events.firstNotNullOfOrNull { it.localizedLeagueName(localizedLeagueNames) }
+                            ?: events.firstNotNullOfOrNull { it.categoryLabel }
+                            ?: fallbackLeague
+                        Triple(key, label, events)
+                    }.sortedWith(compareBy<Triple<String, String, List<SportsEvent>>> {
+                        it.third.none { event -> event.leagueInfo != null || event.league != null }
+                    }.thenByDescending { it.third.size })
+
+                    leagueGroups.forEach { (leagueKey, league, events) ->
+                        item(key = "league:$leagueKey") {
+                            val attributionLines = events.maxOf { event ->
+                                event.attributionCredits.sumOf { it.lineCount }
+                            }
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text(
+                                    text = league,
+                                    fontSize = 17.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = BrowseColors.TextPrimary,
+                                )
+                                LazyRow(
+                                    modifier = Modifier.fillMaxWidth().focusGroup(),
+                                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 6.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                ) {
+                                    items(events, key = SportsEvent::id) { event ->
+                                        SportsEventCard(
+                                            event = event,
+                                            isLive = event.isLiveAt(state.nowMillis),
+                                            showDate = state.selectedTimeRange == SportsTimeRange.UPCOMING,
+                                            attributionLines = attributionLines,
+                                            onShowDetails = { detailsEvent = it },
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -315,66 +409,66 @@ internal fun SportsHubContent(
 }
 
 @Composable
-private fun SportsTimeRangeFilters(
-    selected: SportsTimeRange,
-    onSelected: (SportsTimeRange) -> Unit,
-) {
+private fun SportsHubHeader() {
     Row(
-        modifier = Modifier.horizontalScroll(rememberScrollState()).padding(3.dp).focusGroup(),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        modifier = Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        SportsFilterButton(
-            label = stringResource(R.string.live_sports_on_now),
-            selected = selected == SportsTimeRange.ON_NOW,
-            onClick = { onSelected(SportsTimeRange.ON_NOW) },
-        )
-        SportsFilterButton(
-            label = stringResource(R.string.epg_day_today),
-            selected = selected == SportsTimeRange.TODAY,
-            onClick = { onSelected(SportsTimeRange.TODAY) },
-        )
-        SportsFilterButton(
-            label = stringResource(R.string.live_sports_upcoming),
-            selected = selected == SportsTimeRange.UPCOMING,
-            onClick = { onSelected(SportsTimeRange.UPCOMING) },
-        )
+        Box(
+            modifier = Modifier
+                .size(44.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(BrowseColors.Brand.copy(alpha = 0.16f))
+                .border(1.dp, BrowseColors.Brand.copy(alpha = 0.35f), RoundedCornerShape(12.dp)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = Icons.Default.EmojiEvents,
+                contentDescription = null,
+                modifier = Modifier.size(24.dp),
+                tint = BrowseColors.Brand,
+            )
+        }
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                text = stringResource(R.string.nav_sports),
+                fontSize = 24.sp,
+                fontWeight = FontWeight.Bold,
+                color = BrowseColors.TextPrimary,
+            )
+            Text(
+                text = stringResource(R.string.live_sports_subtitle),
+                fontSize = 12.sp,
+                color = BrowseColors.TextSecondary,
+            )
+        }
     }
 }
 
 @Composable
 private fun SportsSportFilters(
     selected: SportsSportFilter,
+    excludedSports: Set<String>,
     onSelected: (SportsSportFilter) -> Unit,
 ) {
+    val availableFilters = remember(excludedSports) {
+        SportsSportFilter.entries.filter { filter ->
+            filter.discoveryKey == null || filter.discoveryKey !in excludedSports
+        }
+    }
     Row(
-        modifier = Modifier.horizontalScroll(rememberScrollState()).padding(3.dp).focusGroup(),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        modifier = Modifier.horizontalScroll(rememberScrollState()).padding(vertical = 2.dp).focusGroup(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        SportsFilterButton(
-            label = stringResource(R.string.home_quick_filters_all),
-            selected = selected == SportsSportFilter.ALL,
-            onClick = { onSelected(SportsSportFilter.ALL) },
-        )
-        SportsFilterButton(
-            label = stringResource(R.string.live_sports_filter_football),
-            selected = selected == SportsSportFilter.FOOTBALL,
-            onClick = { onSelected(SportsSportFilter.FOOTBALL) },
-        )
-        SportsFilterButton(
-            label = stringResource(R.string.live_sports_filter_basketball),
-            selected = selected == SportsSportFilter.BASKETBALL,
-            onClick = { onSelected(SportsSportFilter.BASKETBALL) },
-        )
-        SportsFilterButton(
-            label = stringResource(R.string.live_sports_filter_motorsport),
-            selected = selected == SportsSportFilter.MOTORSPORT,
-            onClick = { onSelected(SportsSportFilter.MOTORSPORT) },
-        )
-        SportsFilterButton(
-            label = stringResource(R.string.live_sports_filter_other),
-            selected = selected == SportsSportFilter.OTHER,
-            onClick = { onSelected(SportsSportFilter.OTHER) },
-        )
+        availableFilters.forEach { filter ->
+            SportsFilterButton(
+                label = stringResource(filter.labelResource()),
+                icon = filter.icon(),
+                selected = selected == filter,
+                onClick = { onSelected(filter) },
+            )
+        }
     }
 }
 
@@ -385,11 +479,12 @@ private fun SportsLeagueFilters(
     onSelected: (String?) -> Unit,
 ) {
     Row(
-        modifier = Modifier.horizontalScroll(rememberScrollState()).padding(3.dp).focusGroup(),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        modifier = Modifier.horizontalScroll(rememberScrollState()).padding(vertical = 2.dp).focusGroup(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         SportsFilterButton(
             label = stringResource(R.string.live_sports_filter_all_leagues),
+            icon = Icons.Default.Shield,
             selected = selected == null,
             onClick = { onSelected(null) },
         )
@@ -404,24 +499,166 @@ private fun SportsLeagueFilters(
 }
 
 @Composable
+private fun SportsStatusAndSearchRow(
+    selectedTimeRange: SportsTimeRange,
+    liveCount: Int,
+    upcomingCount: Int,
+    searchQuery: String,
+    onSearchQueryChanged: (String) -> Unit,
+    onOpenInclusions: () -> Unit,
+    onSelectTimeRange: (SportsTimeRange) -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Row(
+            modifier = Modifier.weight(1f).horizontalScroll(rememberScrollState()).focusGroup(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            val liveLabel = if (liveCount > 0) {
+                "${stringResource(R.string.live_sports_on_now)} ($liveCount)"
+            } else {
+                stringResource(R.string.live_sports_on_now)
+            }
+            SportsFilterButton(
+                label = liveLabel,
+                icon = Icons.Default.RadioButtonChecked,
+                iconTint = BrowseColors.Live,
+                selected = selectedTimeRange == SportsTimeRange.ON_NOW,
+                onClick = { onSelectTimeRange(SportsTimeRange.ON_NOW) },
+            )
+            val upcomingLabel = if (upcomingCount > 0) {
+                "${stringResource(R.string.live_sports_upcoming)} ($upcomingCount)"
+            } else {
+                stringResource(R.string.live_sports_upcoming)
+            }
+            SportsFilterButton(
+                label = upcomingLabel,
+                icon = Icons.Default.Schedule,
+                selected = selectedTimeRange == SportsTimeRange.UPCOMING,
+                onClick = { onSelectTimeRange(SportsTimeRange.UPCOMING) },
+            )
+            SportsFilterButton(
+                label = stringResource(R.string.live_sports_featured),
+                icon = Icons.Default.Star,
+                selected = selectedTimeRange == SportsTimeRange.FEATURED,
+                onClick = { onSelectTimeRange(SportsTimeRange.FEATURED) },
+            )
+            SportsFilterButton(
+                label = stringResource(R.string.live_sports_completed),
+                icon = Icons.Default.History,
+                selected = selectedTimeRange == SportsTimeRange.COMPLETED,
+                onClick = { onSelectTimeRange(SportsTimeRange.COMPLETED) },
+            )
+            TvButton(
+                onClick = onOpenInclusions,
+                modifier = Modifier.height(34.dp),
+                scale = ButtonDefaults.scale(focusedScale = 1f),
+                colors = ButtonDefaults.colors(
+                    containerColor = BrowseColors.SurfaceElevated.copy(alpha = 0.7f),
+                    contentColor = BrowseColors.TextSecondary,
+                    focusedContainerColor = BrowseColors.BrandStrong,
+                    focusedContentColor = contentOnColor(BrowseColors.BrandStrong),
+                ),
+                border = ButtonDefaults.border(
+                    border = Border(BorderStroke(1.dp, BrowseColors.Outline), shape = BrowseShapes.Control),
+                    focusedBorder = Border(BorderStroke(2.dp, BrowseColors.Focus), shape = BrowseShapes.Control),
+                ),
+                shape = ButtonDefaults.shape(BrowseShapes.Control),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+            ) {
+                Icon(Icons.Default.Tune, contentDescription = null, modifier = Modifier.size(15.dp))
+                Spacer(Modifier.width(6.dp))
+                Text(stringResource(R.string.live_sports_inclusions), fontSize = 12.sp, maxLines = 1)
+            }
+        }
+        SportsDiscoverySearch(
+            query = searchQuery,
+            onQuery = onSearchQueryChanged,
+        )
+    }
+}
+
+@Composable
+private fun SportsTimeRangeFilters(
+    selected: SportsTimeRange,
+    onSelected: (SportsTimeRange) -> Unit,
+) {
+    Row(
+        modifier = Modifier.horizontalScroll(rememberScrollState()).padding(3.dp).focusGroup(),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        SportsFilterButton(
+            label = stringResource(R.string.live_sports_on_now),
+            icon = Icons.Default.RadioButtonChecked,
+            iconTint = BrowseColors.Live,
+            selected = selected == SportsTimeRange.ON_NOW,
+            onClick = { onSelected(SportsTimeRange.ON_NOW) },
+        )
+        SportsFilterButton(
+            label = stringResource(R.string.live_sports_upcoming),
+            icon = Icons.Default.Schedule,
+            selected = selected == SportsTimeRange.UPCOMING,
+            onClick = { onSelected(SportsTimeRange.UPCOMING) },
+        )
+        SportsFilterButton(
+            label = stringResource(R.string.live_sports_featured),
+            icon = Icons.Default.Star,
+            selected = selected == SportsTimeRange.FEATURED,
+            onClick = { onSelected(SportsTimeRange.FEATURED) },
+        )
+        SportsFilterButton(
+            label = stringResource(R.string.live_sports_completed),
+            icon = Icons.Default.History,
+            selected = selected == SportsTimeRange.COMPLETED,
+            onClick = { onSelected(SportsTimeRange.COMPLETED) },
+        )
+    }
+}
+
+@Composable
 private fun SportsFilterButton(
     label: String,
     selected: Boolean,
+    icon: ImageVector? = null,
+    iconTint: Color? = null,
     onClick: () -> Unit,
 ) {
     TvButton(
         onClick = onClick,
-        modifier = Modifier.height(30.dp).semantics { this.selected = selected },
+        modifier = Modifier.height(34.dp).semantics { this.selected = selected },
         scale = ButtonDefaults.scale(focusedScale = 1f),
         colors = ButtonDefaults.colors(
-            containerColor = if (selected) BrowseColors.Brand.copy(alpha = 0.20f) else Color.Transparent,
+            containerColor = if (selected) BrowseColors.Brand.copy(alpha = 0.22f) else BrowseColors.SurfaceElevated.copy(alpha = 0.7f),
             contentColor = if (selected) BrowseColors.BrandStrong else BrowseColors.TextSecondary,
             focusedContainerColor = BrowseColors.BrandStrong,
             focusedContentColor = contentOnColor(BrowseColors.BrandStrong),
         ),
-        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 2.dp),
+        border = ButtonDefaults.border(
+            border = Border(
+                BorderStroke(1.dp, if (selected) BrowseColors.Brand else BrowseColors.Outline),
+                shape = BrowseShapes.Control,
+            ),
+            focusedBorder = Border(
+                BorderStroke(2.dp, BrowseColors.Focus),
+                shape = BrowseShapes.Control,
+            ),
+        ),
+        shape = ButtonDefaults.shape(BrowseShapes.Control),
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
     ) {
-        if (selected) {
+        if (icon != null) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                modifier = Modifier.size(15.dp),
+                tint = iconTint ?: (if (selected) BrowseColors.BrandStrong else BrowseColors.TextSecondary),
+            )
+            Spacer(Modifier.width(6.dp))
+        } else if (selected) {
             Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(13.dp))
             Spacer(Modifier.width(5.dp))
         }
@@ -437,62 +674,298 @@ private fun FeaturedSportsEvent(
     onShowDetails: (SportsEvent) -> Unit,
     onPlayBroadcast: (SportsBroadcast) -> Unit,
 ) {
-    if (isPortraitLayout()) {
-        Column(
-            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
-                .background(Brush.horizontalGradient(listOf(BrowseColors.SurfaceEmphasis, BrowseColors.Surface)))
-                .border(1.dp, BrowseColors.Outline, RoundedCornerShape(12.dp)).padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            EventEyebrow(event, isLive)
-            SportsFixture(event, featured = true, modifier = Modifier.fillMaxWidth().height(72.dp))
-            Text(formatEventTime(event, showDate), fontSize = 12.sp, color = BrowseColors.TextSecondary)
-            Text(sportsDescriptionForPresentation(event.description).ifBlank { event.title },
-                fontSize = 12.sp, color = BrowseColors.TextSecondary, maxLines = 3, overflow = TextOverflow.Ellipsis)
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                event.broadcastsForPresentation().firstOrNull()?.let { broadcast ->
-                    SportsChannelButton(channel = broadcast.channel, compact = true, onClick = { onPlayBroadcast(broadcast) })
-                }
-                TvButton(onClick = { onShowDetails(event) }) {
-                    Text(stringResource(R.string.epg_program_details_show), fontSize = 12.sp)
-                }
-            }
-            Text(stringResource(R.string.live_sports_channel_choices, event.broadcasts.size),
-                fontSize = 11.sp, color = BrowseColors.TextTertiary)
-        }
-        return
-    }
-    Row(
-        modifier = Modifier.fillMaxWidth().height(180.dp + 18.dp * event.attributionCredits.sumOf { it.lineCount })
-            .clip(RoundedCornerShape(12.dp))
-            .background(Brush.horizontalGradient(listOf(BrowseColors.SurfaceEmphasis, BrowseColors.Surface)))
-            .border(1.dp, BrowseColors.Outline, RoundedCornerShape(12.dp))
+    val leagueLabel = event.localizedLeagueName(sportsLeagueLabels())
+        ?: event.categoryLabel ?: stringResource(R.string.nav_sports)
+    val sourcedStatus = event.provenance.status
+    val primaryBroadcast = event.broadcastsForPresentation().firstOrNull()
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(
+                Brush.linearGradient(
+                    colors = listOf(
+                        BrowseColors.SurfaceElevated,
+                        BrowseColors.Surface,
+                        BrowseColors.SurfaceEmphasis,
+                    )
+                )
+            )
+            .border(1.dp, if (isLive) BrowseColors.Brand.copy(alpha = 0.5f) else BrowseColors.Outline, RoundedCornerShape(16.dp))
             .padding(18.dp),
-        horizontalArrangement = Arrangement.spacedBy(24.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        Column(Modifier.weight(1.15f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            EventEyebrow(event, isLive)
-            SportsFixture(event, featured = true, modifier = Modifier.weight(1f))
-            Text(formatEventTime(event, showDate), fontSize = 12.sp, color = BrowseColors.TextSecondary,
-                maxLines = 1, overflow = TextOverflow.Ellipsis)
-        }
-        Box(Modifier.width(1.dp).fillMaxHeight().background(BrowseColors.Outline))
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(sportsDescriptionForPresentation(event.description).ifBlank { event.title }, fontSize = 12.sp,
-                color = BrowseColors.TextSecondary, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Spacer(Modifier.weight(1f))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                event.broadcastsForPresentation().firstOrNull()?.let { broadcast ->
-                    SportsChannelButton(channel = broadcast.channel, compact = true,
-                        modifier = Modifier.weight(1f), onClick = { onPlayBroadcast(broadcast) })
+        // Top row: League & Live Badge
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Icon(
+                    imageVector = event.sport.icon(),
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp),
+                    tint = BrowseColors.Brand,
+                )
+                Text(
+                    text = leagueLabel,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = BrowseColors.BrandStrong,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                if (isLive) {
+                    LiveBadge()
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(BrowseColors.SurfaceElevated)
+                            .border(1.dp, BrowseColors.Outline, RoundedCornerShape(4.dp))
+                            .padding(horizontal = 8.dp, vertical = 2.dp),
+                    ) {
+                        Text(
+                            text = stringResource(R.string.live_sports_upcoming).uppercase(),
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = BrowseColors.TextSecondary,
+                        )
+                    }
                 }
-                TvButton(onClick = { onShowDetails(event) }, modifier = Modifier.height(36.dp),
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)) {
-                    Text(stringResource(R.string.epg_program_details_show), fontSize = 12.sp)
+                sourcedStatus?.value?.let { status ->
+                    val liveDetail = listOfNotNull(status.period, status.clock, status.detail)
+                        .map(String::trim)
+                        .filter(String::isNotEmpty)
+                        .distinct()
+                        .joinToString(" · ")
+                    if (liveDetail.isNotEmpty()) {
+                        Text(
+                            text = liveDetail,
+                            fontSize = 11.sp,
+                            color = BrowseColors.TextSecondary,
+                            maxLines = 1,
+                        )
+                    }
                 }
             }
-            Text(stringResource(R.string.live_sports_channel_choices, event.broadcasts.size),
-                fontSize = 11.sp, color = BrowseColors.TextTertiary)
+        }
+
+        // Center row: Teams & Scores / Matchup + Info
+        AdaptiveRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(24.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            // Matchup section
+            Column(
+                modifier = Modifier.weight(1.3f),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                if (event.competitors.size == 2) {
+                    val team1 = event.competitors[0]
+                    val team2 = event.competitors[1]
+                    val score1 = event.scoreFor(team1)
+                    val score2 = event.scoreFor(team2)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        // Team 1
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            ChannelLogoBadge(
+                                channelName = team1.displayName,
+                                logoUrl = team1.logoUrl,
+                                modifier = Modifier.size(46.dp),
+                                shape = CircleShape,
+                                backgroundColor = BrowseColors.Brand.copy(alpha = 0.15f),
+                            )
+                            Text(
+                                text = team1.displayName,
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = BrowseColors.TextPrimary,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            if (score1 != null) {
+                                Spacer(Modifier.width(6.dp))
+                                Text(
+                                    text = score1,
+                                    fontSize = 20.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = BrowseColors.BrandStrong,
+                                )
+                            }
+                        }
+                        // VS badge
+                        Box(
+                            modifier = Modifier
+                                .padding(horizontal = 10.dp)
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(BrowseColors.Surface)
+                                .border(1.dp, BrowseColors.Outline, RoundedCornerShape(6.dp))
+                                .padding(horizontal = 8.dp, vertical = 3.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                text = "VS",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = BrowseColors.TextSecondary,
+                            )
+                        }
+                        // Team 2
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.End,
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            if (score2 != null) {
+                                Text(
+                                    text = score2,
+                                    fontSize = 20.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = BrowseColors.BrandStrong,
+                                )
+                                Spacer(Modifier.width(6.dp))
+                            }
+                            Text(
+                                text = team2.displayName,
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = BrowseColors.TextPrimary,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Spacer(Modifier.width(10.dp))
+                            ChannelLogoBadge(
+                                channelName = team2.displayName,
+                                logoUrl = team2.logoUrl,
+                                modifier = Modifier.size(46.dp),
+                                shape = CircleShape,
+                                backgroundColor = BrowseColors.Brand.copy(alpha = 0.15f),
+                            )
+                        }
+                    }
+                } else {
+                    Text(
+                        text = event.title,
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = BrowseColors.TextPrimary,
+                        maxLines = 2,
+                    )
+                }
+                // Time & session
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Schedule,
+                        contentDescription = null,
+                        modifier = Modifier.size(14.dp),
+                        tint = BrowseColors.TextSecondary,
+                    )
+                    Text(
+                        text = formatEventTime(event, showDate),
+                        fontSize = 12.sp,
+                        color = BrowseColors.TextSecondary,
+                    )
+                    event.session?.let {
+                        Text("· $it", fontSize = 12.sp, color = BrowseColors.TextTertiary)
+                    }
+                }
+            }
+
+            // Description & Actions section
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Text(
+                    text = sportsDescriptionForPresentation(event.description).ifBlank { event.title },
+                    fontSize = 12.sp,
+                    color = BrowseColors.TextSecondary,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                // Action Buttons
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    primaryBroadcast?.let { broadcast ->
+                        TvButton(
+                            onClick = { onPlayBroadcast(broadcast) },
+                            modifier = Modifier.height(38.dp),
+                            colors = ButtonDefaults.colors(
+                                containerColor = BrowseColors.BrandStrong,
+                                contentColor = contentOnColor(BrowseColors.BrandStrong),
+                            ),
+                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp),
+                        ) {
+                            Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text(stringResource(R.string.live_sports_watch_live), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                    TvButton(
+                        onClick = { onShowDetails(event) },
+                        modifier = Modifier.height(38.dp),
+                        colors = ButtonDefaults.colors(
+                            containerColor = BrowseColors.SurfaceElevated,
+                            contentColor = BrowseColors.TextPrimary,
+                        ),
+                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp),
+                    ) {
+                        Text(stringResource(R.string.live_sports_program_details), fontSize = 12.sp)
+                    }
+                }
+                // Available Channels summary
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    primaryBroadcast?.channel?.let { channel ->
+                        ChannelLogoBadge(
+                            channelName = channel.name,
+                            logoUrl = channel.logoUrl,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Text(
+                            text = channel.name,
+                            fontSize = 11.sp,
+                            color = BrowseColors.TextSecondary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    if (event.broadcasts.size > 1) {
+                        Text(
+                            text = "· " + stringResource(R.string.live_sports_channel_choices, event.broadcasts.size),
+                            fontSize = 11.sp,
+                            color = BrowseColors.TextTertiary,
+                        )
+                    }
+                }
+            }
         }
     }
 }
@@ -590,10 +1063,6 @@ private fun attributionText(attribution: SportsAttributionCredit): String = when
     )
 }
 
-private fun SportsEvent.isLiveAt(nowMillis: Long): Boolean =
-    provenance.status?.value?.state == ProviderGameState.LIVE ||
-        broadcastStatusAt(nowMillis) == SportsBroadcastStatus.ON_AIR
-
 @Composable
 internal fun sportsLeagueLabels(): Map<String, String> = mapOf(
     "efl-championship" to stringResource(R.string.live_sports_league_efl_championship),
@@ -666,22 +1135,191 @@ private fun SportsEventCard(
     attributionLines: Int,
     onShowDetails: (SportsEvent) -> Unit,
 ) {
+    val leagueLabel = event.localizedLeagueName(sportsLeagueLabels())
+        ?: event.categoryLabel ?: stringResource(R.string.nav_sports)
     TvClickableSurface(
         onClick = { onShowDetails(event) },
-        modifier = Modifier.width(244.dp).height(172.dp + 18.dp * attributionLines),
-        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(10.dp)),
+        modifier = Modifier.width(260.dp).height(172.dp + 18.dp * attributionLines),
+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(12.dp)),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = BrowseColors.SurfaceElevated,
+            focusedContainerColor = BrowseColors.SurfaceEmphasis,
+        ),
+        border = ClickableSurfaceDefaults.border(
+            border = Border(BorderStroke(1.dp, BrowseColors.Outline), shape = RoundedCornerShape(12.dp)),
+            focusedBorder = Border(BorderStroke(2.dp, BrowseColors.Focus), shape = RoundedCornerShape(12.dp)),
+        ),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1.02f),
     ) {
-        Column(Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            EventEyebrow(event, isLive)
-            SportsFixture(event, featured = false, modifier = Modifier.weight(1f))
-            Text(formatEventTime(event, showDate), fontSize = 11.sp,
-                color = BrowseColors.TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Column(
+            modifier = Modifier.fillMaxSize().padding(12.dp),
+            verticalArrangement = Arrangement.SpaceBetween,
+        ) {
+            // Card Top: League + Status Badge
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = leagueLabel,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = BrowseColors.BrandStrong,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                if (isLive) {
+                    LiveBadge()
+                } else if (event.isCompletedAt(System.currentTimeMillis())) {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(BrowseColors.Surface)
+                            .padding(horizontal = 6.dp, vertical = 1.dp),
+                    ) {
+                        Text(
+                            text = stringResource(R.string.live_sports_completed),
+                            fontSize = 9.sp,
+                            color = BrowseColors.TextTertiary,
+                            fontWeight = FontWeight.Medium,
+                        )
+                    }
+                }
+            }
+
+            // Card Center: Matchup (2 Teams or Title)
+            if (event.competitors.size == 2) {
+                val team1 = event.competitors[0]
+                val team2 = event.competitors[1]
+                val score1 = event.scoreFor(team1)
+                val score2 = event.scoreFor(team2)
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    // Team 1
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        ChannelLogoBadge(
+                            channelName = team1.displayName,
+                            logoUrl = team1.logoUrl,
+                            modifier = Modifier.size(34.dp),
+                            shape = CircleShape,
+                            backgroundColor = BrowseColors.Surface,
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            text = team1.displayName,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = BrowseColors.TextPrimary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        if (score1 != null) {
+                            Text(
+                                text = score1,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = BrowseColors.BrandStrong,
+                            )
+                        }
+                    }
+                    // VS
+                    Box(
+                        modifier = Modifier
+                            .padding(horizontal = 4.dp)
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(BrowseColors.Surface)
+                            .padding(horizontal = 6.dp, vertical = 2.dp),
+                    ) {
+                        Text("VS", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = BrowseColors.TextSecondary)
+                    }
+                    // Team 2
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        ChannelLogoBadge(
+                            channelName = team2.displayName,
+                            logoUrl = team2.logoUrl,
+                            modifier = Modifier.size(34.dp),
+                            shape = CircleShape,
+                            backgroundColor = BrowseColors.Surface,
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            text = team2.displayName,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = BrowseColors.TextPrimary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        if (score2 != null) {
+                            Text(
+                                text = score2,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = BrowseColors.BrandStrong,
+                            )
+                        }
+                    }
+                }
+            } else {
+                Text(
+                    text = event.title,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = BrowseColors.TextPrimary,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+
+            // Card Bottom: Date/Time + Channel
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Schedule,
+                        contentDescription = null,
+                        modifier = Modifier.size(12.dp),
+                        tint = BrowseColors.TextSecondary,
+                    )
+                    Text(
+                        text = formatEventTime(event, showDate),
+                        fontSize = 10.sp,
+                        color = BrowseColors.TextSecondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
                 event.broadcastsForPresentation().firstOrNull()?.channel?.let { channel ->
-                    ChannelLogoBadge(channelName = channel.name, logoUrl = channel.logoUrl, modifier = Modifier.size(18.dp))
-                    Text(channel.name, modifier = Modifier.weight(1f), fontSize = 10.sp,
-                        color = BrowseColors.TextTertiary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        ChannelLogoBadge(
+                            channelName = channel.name,
+                            logoUrl = channel.logoUrl,
+                            modifier = Modifier.size(16.dp),
+                        )
+                        Text(
+                            text = channel.name,
+                            fontSize = 10.sp,
+                            color = BrowseColors.TextTertiary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                 }
             }
         }

@@ -83,7 +83,13 @@ internal fun shouldRefreshSportsOnClock(
     range: SportsTimeRange,
     hasLiveEvents: Boolean,
     dateChanged: Boolean,
-): Boolean = range == SportsTimeRange.ON_NOW || hasLiveEvents || dateChanged
+): Boolean = when (range) {
+    SportsTimeRange.ON_NOW -> true
+    SportsTimeRange.COMPLETED -> dateChanged
+    SportsTimeRange.TODAY,
+    SportsTimeRange.UPCOMING,
+    SportsTimeRange.FEATURED -> hasLiveEvents || dateChanged
+}
 
 /** Keep background work on the same scheduler as Main in repository tests. */
 internal class SportsHubDispatchers(
@@ -658,12 +664,14 @@ internal class SportsHubRepository @Inject constructor(
         val startOfToday = Instant.ofEpochMilli(now).atZone(zone).toLocalDate()
             .atStartOfDay(zone).toInstant().toEpochMilli()
         val from = when (range) {
-            SportsTimeRange.ON_NOW, SportsTimeRange.TODAY -> minOf(startOfToday, now - PROVIDER_EVENT_LOOKBACK_MS)
+            SportsTimeRange.ON_NOW, SportsTimeRange.TODAY, SportsTimeRange.FEATURED -> minOf(startOfToday, now - PROVIDER_EVENT_LOOKBACK_MS)
+            SportsTimeRange.COMPLETED -> startOfToday
             SportsTimeRange.UPCOMING -> window.startTime
         }
         val until = when (range) {
             SportsTimeRange.ON_NOW -> now + 1L
-            SportsTimeRange.TODAY, SportsTimeRange.UPCOMING -> window.endTime
+            SportsTimeRange.COMPLETED -> now
+            SportsTimeRange.TODAY, SportsTimeRange.FEATURED, SportsTimeRange.UPCOMING -> window.endTime
         }
         return from to until.coerceAtLeast(from + 1L)
     }
@@ -995,6 +1003,7 @@ internal class SportsHubRepository @Inject constructor(
         val zone = ZoneId.systemDefault()
         val today = Instant.ofEpochMilli(now).atZone(zone).toLocalDate()
         val tomorrow = today.plusDays(1)
+        val startOfToday = today.atStartOfDay(zone).toInstant().toEpochMilli()
         return when (range) {
             SportsTimeRange.ON_NOW -> SportsTimeWindow(now, now + 1L)
             SportsTimeRange.TODAY -> SportsTimeWindow(
@@ -1004,6 +1013,14 @@ internal class SportsHubRepository @Inject constructor(
             SportsTimeRange.UPCOMING -> SportsTimeWindow(
                 startTime = tomorrow.atStartOfDay(zone).toInstant().toEpochMilli(),
                 endTime = tomorrow.plusDays(7).atStartOfDay(zone).toInstant().toEpochMilli(),
+            )
+            SportsTimeRange.FEATURED -> SportsTimeWindow(
+                startTime = now,
+                endTime = tomorrow.plusDays(3).atStartOfDay(zone).toInstant().toEpochMilli(),
+            )
+            SportsTimeRange.COMPLETED -> SportsTimeWindow(
+                startTime = startOfToday,
+                endTime = now,
             )
         }
     }
@@ -1018,6 +1035,8 @@ internal class SportsHubRepository @Inject constructor(
         SportsTimeRange.ON_NOW -> startTime <= now && endTime > now
         SportsTimeRange.TODAY -> endTime > now && startTime < window.endTime
         SportsTimeRange.UPCOMING -> startTime >= window.startTime && startTime < window.endTime
+        SportsTimeRange.FEATURED -> endTime > now && startTime < window.endTime
+        SportsTimeRange.COMPLETED -> endTime <= now && localDate(endTime) == localDate(now) && startTime >= window.startTime
     }
 
     private fun localDate(timestamp: Long): LocalDate =

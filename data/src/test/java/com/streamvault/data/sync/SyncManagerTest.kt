@@ -239,17 +239,18 @@ class SyncManagerTest {
             val contentType: String = "application/json"
         )
 
+        private val lock = Any()
         private val stubs = mutableMapOf<String, MutableList<StubbedResponse>>()
-        val requestedActions = mutableListOf<String>()
+        val requestedActions = java.util.concurrent.CopyOnWriteArrayList<String>()
 
-        fun respond(action: String, body: String, code: Int = 200) {
+        fun respond(action: String, body: String, code: Int = 200) = synchronized(lock) {
             stubs.getOrPut(action) { mutableListOf() }
                 .add(StubbedResponse(code = code, body = body))
         }
 
         fun requestCount(): Int = requestedActions.size
 
-        fun reset() {
+        fun reset() = synchronized(lock) {
             stubs.clear()
             requestedActions.clear()
         }
@@ -260,14 +261,16 @@ class SyncManagerTest {
                     val request = chain.request()
                     val action = request.url.queryParameter("action").orEmpty()
                     requestedActions += action
-                    val queued = stubs[action]
-                    val stub = when {
-                        queued == null -> StubbedResponse(
-                            code = 500,
-                            body = """{"error":"missing stub for $action"}"""
-                        )
-                        queued.size > 1 -> queued.removeAt(0)
-                        else -> queued.first()
+                    val stub = synchronized(lock) {
+                        val queued = stubs[action]
+                        when {
+                            queued == null -> StubbedResponse(
+                                code = 500,
+                                body = """{"error":"missing stub for $action"}"""
+                            )
+                            queued.size > 1 -> queued.removeAt(0)
+                            else -> queued.first()
+                        }
                     }
                     Response.Builder()
                         .request(request)
@@ -899,7 +902,7 @@ class SyncManagerTest {
         val now = System.currentTimeMillis()
         syncMetadataRepo.updateMetadata(SyncMetadata(providerId = 1, lastLiveSync = now, lastLiveSuccess = now,
             liveCount = 2, lastSyncStatus = "SUCCESS"))
-        org.mockito.kotlin.whenever(channelDao.countByProvider(1)).thenReturn(1)
+        org.mockito.kotlin.whenever(channelDao.countByProvider(org.mockito.kotlin.any())).thenReturn(1)
         stubXtreamLiveCatalog()
         stubXtreamEmptyVodAndSeriesCategories()
         mgr.resumePrimaryCatalog(1, trackInitialLiveOnboarding = false)

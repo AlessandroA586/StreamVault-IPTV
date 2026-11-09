@@ -2,6 +2,12 @@
 
 All notable product changes are recorded in this document.
 
+## [1.2.6]
+
+### Added
+- Redesigned Sports Hub interface: dynamic hero matchup card for live/upcoming fixtures, categorized live sports carousels with deduplication across sections, faithful vector sport icons, sports/leagues inclusion controls next to filters, and strict current-day filtering for completed fixtures.
+- In-app upstream license compliance: added explicit derivative notice ("Derived from StreamVault") and dedicated links for both the original upstream repository (Davidona) and the fork repository in the About section.
+
 ## [1.2.5]
 
 ### Added

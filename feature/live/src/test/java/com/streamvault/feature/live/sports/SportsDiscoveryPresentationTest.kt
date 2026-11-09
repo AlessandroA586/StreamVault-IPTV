@@ -60,5 +60,20 @@ class SportsDiscoveryPresentationTest {
         assertThat(event.matchesDiscovery(SportsHubUiState(excludedLeagues = setOf("wnba")))).isFalse()
         assertThat(event.matchesDiscovery(SportsHubUiState(excludedSports = setOf("FOOTBALL"), searchQuery = "Atlanta"))).isTrue()
         assertThat(event.matchesDiscovery(SportsHubUiState(selectedSportFilter = SportsSportFilter.FOOTBALL))).isFalse()
+        assertThat(event.matchesDiscovery(SportsHubUiState(selectedSportFilter = SportsSportFilter.BASKETBALL))).isTrue()
+        assertThat(event.matchesDiscovery(SportsHubUiState(selectedSportFilter = SportsSportFilter.ALL))).isTrue()
+    }
+
+    @Test fun `all native sport filters match corresponding sport types`() {
+        val tennisEvent = event.copy(sport = SportType.TENNIS)
+        assertThat(tennisEvent.matches(SportsSportFilter.TENNIS)).isTrue()
+        assertThat(tennisEvent.matches(SportsSportFilter.FOOTBALL)).isFalse()
+
+        val mmaEvent = event.copy(sport = SportType.MMA)
+        assertThat(mmaEvent.matches(SportsSportFilter.MMA)).isTrue()
+
+        val vballEvent = event.copy(sport = SportType.VOLLEYBALL)
+        assertThat(vballEvent.matches(SportsSportFilter.OTHER)).isTrue()
+        assertThat(vballEvent.matches(SportsSportFilter.FOOTBALL)).isFalse()
     }
 }

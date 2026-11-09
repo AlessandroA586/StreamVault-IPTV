@@ -247,7 +247,7 @@
     <string name="settings_parental_control">Control parental</string>
     <string name="home_show_categories">Mostrar categorías</string>
     <string name="nav_sports">Deportes</string>
-    <string name="live_sports_on_now">Ahora</string>
+    <string name="live_sports_on_now">En vivo ahora</string>
     <string name="live_sports_live_badge">EN DIRECTO</string>
     <string name="live_sports_empty_title">No hay eventos deportivos en esta guía</string>
     <string name="live_sports_empty_message">Aquí aparecerán los eventos deportivos que coincidan con esta vista.</string>
@@ -256,6 +256,11 @@
     <string name="live_sports_retry">Intentar de nuevo</string>
     <string name="live_sports_play_channel_content_description">Ver en %1$s</string>
     <string name="live_sports_upcoming">Próximos</string>
+    <string name="live_sports_featured">Destacados</string>
+    <string name="live_sports_completed">Finalizados</string>
+    <string name="live_sports_subtitle">Todos los deportes en vivo, próximos y pasados, en un solo lugar.</string>
+    <string name="live_sports_watch_live">Ver en vivo</string>
+    <string name="live_sports_program_details">Detalles del programa</string>
     <string name="live_sports_filter_football">Fútbol</string>
     <string name="live_sports_filter_basketball">Baloncesto</string>
     <string name="live_sports_filter_motorsport">Motor</string>

@@ -12,6 +12,8 @@ class SportsHubRefreshPolicyTest {
             .isTrue()
         assertThat(shouldRefreshSportsOnClock(SportsTimeRange.UPCOMING, hasLiveEvents = true, dateChanged = false))
             .isTrue()
+        assertThat(shouldRefreshSportsOnClock(SportsTimeRange.FEATURED, hasLiveEvents = true, dateChanged = false))
+            .isTrue()
     }
 
     @Test
@@ -19,6 +21,12 @@ class SportsHubRefreshPolicyTest {
         assertThat(shouldRefreshSportsOnClock(SportsTimeRange.TODAY, hasLiveEvents = false, dateChanged = false))
             .isFalse()
         assertThat(shouldRefreshSportsOnClock(SportsTimeRange.TODAY, hasLiveEvents = false, dateChanged = true))
+            .isTrue()
+        assertThat(shouldRefreshSportsOnClock(SportsTimeRange.FEATURED, hasLiveEvents = false, dateChanged = false))
+            .isFalse()
+        assertThat(shouldRefreshSportsOnClock(SportsTimeRange.COMPLETED, hasLiveEvents = true, dateChanged = false))
+            .isFalse()
+        assertThat(shouldRefreshSportsOnClock(SportsTimeRange.COMPLETED, hasLiveEvents = false, dateChanged = true))
             .isTrue()
     }
 }

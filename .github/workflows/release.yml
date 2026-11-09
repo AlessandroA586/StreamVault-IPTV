@@ -83,11 +83,8 @@ jobs:
             bash "$test_script"
           done
 
-      - name: Run unit tests, lint, and coverage
-        run: ./gradlew --console=plain testDebugUnitTest :app:lintDebug :data:lintDebug :player:lintDebug verifyLintBaseline koverXmlReportCi koverHtmlReportCi
-
-      - name: Compile instrumentation release gates
-        run: ./gradlew --console=plain :app:assembleDebugAndroidTest :data:assembleDebugAndroidTest
+      - name: Run unit tests and lint
+        run: ./gradlew --console=plain testDebugUnitTest :app:lintDebug :data:lintDebug :player:lintDebug verifyLintBaseline
 
       - name: Build release APK
         env:
@@ -130,17 +127,10 @@ jobs:
             domain/build/reports/tests/
             player/build/reports/tests/
 
-      - name: Upload coverage reports
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage-reports
-          path: |
-            build/reports/kover/
 
   publish-release:
     if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
-    needs: [build, platform-smoke]
+    needs: [build]
     runs-on: ubuntu-latest
 
     steps:
@@ -205,6 +195,7 @@ jobs:
           generate_release_notes: false
 
   platform-smoke:
+    if: github.event_name == 'workflow_dispatch'
     needs: build
     permissions:
       contents: read

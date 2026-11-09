@@ -760,9 +760,13 @@
     <string name="settings_build_verification_official">Official build</string>
     <string name="settings_build_verification_unofficial">Unofficial build</string>
     <string name="settings_build_verification_unavailable">Verification unavailable</string>
-    <string name="settings_developed_by">Developed by</string>
-    <string name="settings_developer_name">David Nashash</string>
-    <string name="settings_github">GitHub</string>
+    <string name="settings_developed_by">Original Developer</string>
+    <string name="settings_developer_name">David Nashash (Davidona)</string>
+    <string name="settings_derivative_notice">Edition</string>
+    <string name="settings_derivative_notice_value">Derived from StreamVault</string>
+    <string name="settings_original_github">Original Repository</string>
+    <string name="settings_original_github_url">https://github.com/Davidona/StreamVault-IPTV</string>
+    <string name="settings_github">Fork Repository</string>
     <string name="settings_github_url">https://github.com/AlessandroA586/StreamVault-IPTV</string>
     <string name="settings_donate">Support on Ko-fi</string>
     <string name="settings_donate_url">https://ko-fi.com/davidona</string>

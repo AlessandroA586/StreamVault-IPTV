@@ -348,6 +348,7 @@ private fun resolvedSettingsCatalog(
         setting("support.crash_view", SettingsCategory.ABOUT, SettingsPage.REPORTS, R.string.settings_crash_report_view, "diagnostics"),
         setting("support.crash_share", SettingsCategory.ABOUT, SettingsPage.REPORTS, R.string.settings_crash_report_share),
         setting("support.crash_delete", SettingsCategory.ABOUT, SettingsPage.REPORTS, R.string.settings_crash_report_delete),
+        setting("about.original_github", SettingsCategory.ABOUT, SettingsPage.APP_INFO, R.string.settings_original_github, "upstream", "davidona"),
         setting("about.github", SettingsCategory.ABOUT, SettingsPage.APP_INFO, R.string.settings_github, "source code"),
         setting("about.open_source_licenses", SettingsCategory.ABOUT, SettingsPage.APP_INFO, R.string.settings_open_source_licenses, "license notices", "third-party"),
         setting("about.donate", SettingsCategory.ABOUT, SettingsPage.APP_INFO, R.string.settings_donate, "support"),

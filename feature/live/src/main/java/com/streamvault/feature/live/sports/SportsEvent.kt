@@ -30,8 +30,10 @@ internal enum class SportType {
 
 internal enum class SportsTimeRange {
     ON_NOW,
-    TODAY,
     UPCOMING,
+    FEATURED,
+    COMPLETED,
+    TODAY,
 }
 
 internal enum class SportsSportFilter {
@@ -39,6 +41,16 @@ internal enum class SportsSportFilter {
     FOOTBALL,
     BASKETBALL,
     MOTORSPORT,
+    TENNIS,
+    BOXING,
+    CRICKET,
+    CYCLING,
+    MMA,
+    AMERICAN_FOOTBALL,
+    BASEBALL,
+    HOCKEY,
+    RUGBY,
+    GOLF,
     OTHER,
 }
 
@@ -147,14 +159,33 @@ internal fun SportsEvent.broadcastStatusAt(nowMillis: Long): SportsBroadcastStat
     else -> SportsBroadcastStatus.ENDED
 }
 
+internal fun SportsEvent.isLiveAt(nowMillis: Long): Boolean =
+    nowMillis in startTime until endTime
+
+internal fun SportsEvent.isCompletedAt(nowMillis: Long): Boolean =
+    nowMillis >= endTime
+
 internal fun SportsEvent.matches(filter: SportsSportFilter): Boolean = when (filter) {
     SportsSportFilter.ALL -> true
     SportsSportFilter.FOOTBALL -> sport == SportType.FOOTBALL
     SportsSportFilter.BASKETBALL -> sport == SportType.BASKETBALL
     SportsSportFilter.MOTORSPORT -> sport == SportType.MOTORSPORT
-    SportsSportFilter.OTHER -> sport !in setOf(
-        SportType.FOOTBALL,
-        SportType.BASKETBALL,
-        SportType.MOTORSPORT,
+    SportsSportFilter.TENNIS -> sport == SportType.TENNIS
+    SportsSportFilter.BOXING -> sport == SportType.BOXING
+    SportsSportFilter.CRICKET -> sport == SportType.CRICKET
+    SportsSportFilter.CYCLING -> sport == SportType.CYCLING
+    SportsSportFilter.MMA -> sport == SportType.MMA
+    SportsSportFilter.AMERICAN_FOOTBALL -> sport == SportType.AMERICAN_FOOTBALL
+    SportsSportFilter.BASEBALL -> sport == SportType.BASEBALL
+    SportsSportFilter.HOCKEY -> sport == SportType.HOCKEY
+    SportsSportFilter.RUGBY -> sport == SportType.RUGBY
+    SportsSportFilter.GOLF -> sport == SportType.GOLF
+    SportsSportFilter.OTHER -> sport in setOf(
+        SportType.VOLLEYBALL,
+        SportType.HANDBALL,
+        SportType.SNOOKER,
+        SportType.DARTS,
+        SportType.OTHER,
+        SportType.UNKNOWN,
     )
 }
