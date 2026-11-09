@@ -456,7 +456,7 @@ internal class SportsHubRepository @Inject constructor(
                 val entries = providerData.flatMap { it.channels }
                 availableChannelEntries = entries
                 // The guide is usable immediately, even when a remote API is slow.
-                if (eventProviders.isEmpty() && assembled.isNotEmpty()) {
+                if (!providerTask.isCompleted && (assembled.isNotEmpty() || eventProviders.isEmpty())) {
                     withContext(Dispatchers.Main.immediate) { publishEvents(assembled, range, now, window) }
                 }
                 val providerEventLoad = providerTask.await()
@@ -563,8 +563,9 @@ internal class SportsHubRepository @Inject constructor(
                     itemCount = baseEvents.size,
                     groupCount = sourcedScoreEvents.size,
                 )
-                val mapped = resolved.mapNotNull { it.toSportsHubEvent(hasProviderEvents = sourcedScoreEvents.isNotEmpty()) }
-                if (sourcedScoreEvents.isNotEmpty()) deduplicateMatches(mapped) else mapped
+                val hasApiEvents = reusableProviderEvents.events.isNotEmpty() || sourcedScoreEvents.isNotEmpty()
+                val mapped = resolved.mapNotNull { it.toSportsHubEvent(hasProviderEvents = hasApiEvents) }
+                if (hasApiEvents) deduplicateMatches(mapped) else mapped
             }
             val eventCatalogs = listOf(
                 reusableProviderEvents,
@@ -713,7 +714,9 @@ internal class SportsHubRepository @Inject constructor(
         val local = epgEvent
         val providerEventValue = providerEvent?.value
         if (local != null) {
-            if (hasProviderEvents && providerEventValue == null) {
+            val isFromProvider = providerEventValue != null ||
+                local.provenance.sources.any { it is SportsSourceRef.Provider }
+            if (hasProviderEvents && !isFromProvider) {
                 return null
             }
             val resolvedLeague = provenance.league?.value?.name?.takeIf(String::isNotBlank) ?: local.league
