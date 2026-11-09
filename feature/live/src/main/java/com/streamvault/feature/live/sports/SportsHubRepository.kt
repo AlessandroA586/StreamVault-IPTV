@@ -625,7 +625,7 @@ internal class SportsHubRepository @Inject constructor(
         if (!complete && !progressiveLoad) return
         val previous = _uiState.value.events.associateBy(SportsEvent::id)
         val currentEvents = events.filter { event ->
-            programMatchesRange(event.startTime, event.endTime, range, now, window)
+            programMatchesRange(event.startTime, event.endTime, range, now, window, event.provenance.status?.value?.state)
         }
         val rememberedPicks = preferencesRepository.getSportsEventChannelPicks(
             eventIds = currentEvents.mapTo(mutableSetOf(), SportsEvent::id),
@@ -675,15 +675,17 @@ internal class SportsHubRepository @Inject constructor(
         val zone = ZoneId.systemDefault()
         val startOfToday = Instant.ofEpochMilli(now).atZone(zone).toLocalDate()
             .atStartOfDay(zone).toInstant().toEpochMilli()
+        val endOfToday = Instant.ofEpochMilli(now).atZone(zone).toLocalDate().plusDays(1)
+            .atStartOfDay(zone).toInstant().toEpochMilli() - 1L
         val from = when (range) {
             SportsTimeRange.ON_NOW, SportsTimeRange.TODAY, SportsTimeRange.FEATURED -> minOf(startOfToday, now - PROVIDER_EVENT_LOOKBACK_MS)
             SportsTimeRange.COMPLETED -> startOfToday
             SportsTimeRange.UPCOMING -> window.startTime
         }
         val until = when (range) {
-            SportsTimeRange.ON_NOW -> now + 1L
+            SportsTimeRange.ON_NOW, SportsTimeRange.TODAY -> maxOf(endOfToday, now + 12 * 3600_000L)
             SportsTimeRange.COMPLETED -> now
-            SportsTimeRange.TODAY, SportsTimeRange.FEATURED, SportsTimeRange.UPCOMING -> window.endTime
+            SportsTimeRange.FEATURED, SportsTimeRange.UPCOMING -> window.endTime
         }
         return from to until.coerceAtLeast(from + 1L)
     }
@@ -1059,7 +1061,10 @@ internal class SportsHubRepository @Inject constructor(
         val tomorrow = today.plusDays(1)
         val startOfToday = today.atStartOfDay(zone).toInstant().toEpochMilli()
         return when (range) {
-            SportsTimeRange.ON_NOW -> SportsTimeWindow(now, now + 1L)
+            SportsTimeRange.ON_NOW -> SportsTimeWindow(
+                startTime = now,
+                endTime = tomorrow.atStartOfDay(zone).toInstant().toEpochMilli(),
+            )
             SportsTimeRange.TODAY -> SportsTimeWindow(
                 startTime = now,
                 endTime = tomorrow.atStartOfDay(zone).toInstant().toEpochMilli(),
@@ -1092,7 +1097,8 @@ internal class SportsHubRepository @Inject constructor(
             else if (state == com.streamvault.domain.sports.provider.ProviderGameState.FINAL ||
                 state == com.streamvault.domain.sports.provider.ProviderGameState.CANCELLED ||
                 state == com.streamvault.domain.sports.provider.ProviderGameState.POSTPONED) false
-            else startTime <= now && endTime > now
+            else if (startTime <= now && endTime > now) true
+            else startTime in now..window.endTime
         }
         SportsTimeRange.COMPLETED -> {
             if (state == com.streamvault.domain.sports.provider.ProviderGameState.FINAL) true

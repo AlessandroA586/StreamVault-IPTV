@@ -320,6 +320,79 @@ internal fun SportsHubContent(
                             }
                         }
                     }
+
+                    val upcomingToday = remainingEvents.filter { !it.isLiveAt(state.nowMillis) && !it.isCompletedAt(state.nowMillis) }
+                    if (upcomingToday.isNotEmpty()) {
+                        val todayLeagueGroups = upcomingToday.groupBy { event ->
+                            event.leagueFilterKey ?: event.categoryLabel?.let {
+                                "category:${SportsTextNormalizer.normalize(it)}"
+                            } ?: "category:sports"
+                        }.map { (key, events) ->
+                            val label = events.firstNotNullOfOrNull { it.localizedLeagueName(localizedLeagueNames) }
+                                ?: events.firstNotNullOfOrNull { it.categoryLabel }
+                                ?: fallbackLeague
+                            Triple(key, label, events)
+                        }.sortedWith(compareBy<Triple<String, String, List<SportsEvent>>> {
+                            it.third.none { event -> event.leagueInfo != null || event.league != null }
+                        }.thenByDescending { it.third.size })
+
+                        item(key = "header-upcoming-today") {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.padding(top = 16.dp),
+                            ) {
+                                Text(
+                                    text = if (liveSportGroups.isEmpty()) "Partidos de hoy" else "Próximos partidos de hoy",
+                                    fontSize = 18.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = BrowseColors.TextPrimary,
+                                )
+                                Box(
+                                    modifier = Modifier
+                                        .clip(CircleShape)
+                                        .background(BrowseColors.SurfaceElevated)
+                                        .border(1.dp, BrowseColors.Outline, CircleShape)
+                                        .padding(horizontal = 8.dp, vertical = 2.dp),
+                                ) {
+                                    Text(
+                                        text = "${upcomingToday.size}",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = BrowseColors.BrandStrong,
+                                    )
+                                }
+                            }
+                        }
+
+                        todayLeagueGroups.forEach { (leagueKey, league, events) ->
+                            item(key = "today-league:$leagueKey") {
+                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Text(
+                                        text = league,
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = BrowseColors.TextSecondary,
+                                    )
+                                    LazyRow(
+                                        modifier = Modifier.fillMaxWidth().focusGroup(),
+                                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 6.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                    ) {
+                                        items(events, key = SportsEvent::id) { event ->
+                                            SportsEventCard(
+                                                event = event,
+                                                isLive = false,
+                                                showDate = false,
+                                                attributionLines = 0,
+                                                onShowDetails = { detailsEvent = it },
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 } else {
                     // OTHER TABS (UPCOMING, FEATURED, COMPLETED):
                     val leagueGroups = remainingEvents.groupBy { event ->
@@ -1545,8 +1618,16 @@ private fun SportsEventDetailsDialog(
                 Text(formatEventTime(event, showDate = true), fontSize = 12.sp, color = BrowseColors.TextSecondary)
                 Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(4.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(stringResource(R.string.live_sports_channel_choices, event.broadcasts.size),
-                        fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = BrowseColors.TextPrimary)
+                    if (displayBroadcasts.isEmpty()) {
+                        Text(
+                            text = stringResource(R.string.live_sports_no_matching_channels),
+                            fontSize = 11.sp,
+                            color = BrowseColors.TextTertiary,
+                        )
+                    } else {
+                        Text(stringResource(R.string.live_sports_channel_choices, event.broadcasts.size),
+                            fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = BrowseColors.TextPrimary)
+                    }
                     event.rememberedBroadcast()?.let { broadcast ->
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text(stringResource(R.string.badge_saved), fontSize = 11.sp, color = BrowseColors.Brand)

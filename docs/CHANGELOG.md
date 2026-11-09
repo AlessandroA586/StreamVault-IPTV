@@ -2,6 +2,14 @@
 
 All notable product changes are recorded in this document.
 
+## [1.2.8]
+
+### Added
+- Independent zero-source Sports Hub: fresh app installations without any loaded playlists or channels immediately display full sports schedules, live scores, upcoming matches, team crests, and league badges.
+- Intelligent channel quality ranking (4K > FHD > HD > SD) in automatic channel matching.
+- Playlist banner separator filtering: header rows (e.g. `##### USA #####`, `=== UK ===`) are automatically excluded from sports channel matching.
+- Integrated today's upcoming matches view directly on the Sports Hub main view, ensuring the screen is never blank even when no matches are currently live.
+
 ## [1.2.7]
 
 ### Added

@@ -11,6 +11,26 @@ import java.time.ZoneId
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 
+private val BANNER_RUN = Regex("([#=*~_▬━─•■◆★|\\-])\\1{2,}")
+
+/** A separator in the channel list ("##### USA SPORTS #####", "▬▬ UK ▬▬"), not a real channel. */
+internal fun isBanner(name: String): Boolean {
+    if (BANNER_RUN.containsMatchIn(name)) return true
+    val letters = name.count { it.isLetterOrDigit() }
+    return name.length >= 6 && letters * 10 < name.length * 4
+}
+
+private fun qualityRank(channelName: String): Int {
+    val norm = channelName.lowercase(Locale.ROOT)
+    return when {
+        "4k" in norm || "uhd" in norm -> 4
+        "fhd" in norm || "1080" in norm -> 3
+        "hd" in norm || "720" in norm -> 2
+        "sd" in norm -> 1
+        else -> 0
+    }
+}
+
 private val CHANNEL_NAME_DECORATION = setOf(
     "4k", "alt", "backup", "feed", "fhd", "h265", "hd", "hevc", "raw", "uhd", "vip",
 )
@@ -85,7 +105,8 @@ internal class SportsChannelIndex private constructor(
                 .filter { entry ->
                     entry.channel.streamUrl.isNotBlank() &&
                         !entry.channel.isAdult &&
-                        !entry.channel.isUserProtected
+                        !entry.channel.isUserProtected &&
+                        !isBanner(entry.channel.name)
                 }
                 .distinctBy { entry -> "${entry.channel.providerId}:${entry.channel.id}" }
                 .toList()
@@ -139,6 +160,8 @@ internal object SportsChannelFallbackMatcher {
             .compareTo(SportsChannelMatchReason.BROADCASTER in first.reasons)
             .takeIf { it != 0 }
             ?: second.score.compareTo(first.score)
+            .takeIf { it != 0 }
+            ?: qualityRank(second.entry.channel.name).compareTo(qualityRank(first.entry.channel.name))
             .takeIf { it != 0 }
             ?: first.entry.channel.name.compareTo(second.entry.channel.name, ignoreCase = true)
                 .takeIf { it != 0 }
